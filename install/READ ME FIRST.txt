@@ -34,6 +34,24 @@ press Return:
 curl -fsSL https://raw.githubusercontent.com/CompassPoint-Mentorship/MuJoCo-Go2/main/install/mac.sh | bash
 
 
+Using it
+--------
+Press Cmd-Space, type "Go2 Simulator", press Return. (It is also in
+your own Applications folder: in Finder press Shift-Cmd-H, then open
+Applications.)
+
+A black terminal window titled "Go2 Lab" opens and stays open, and your
+browser opens with the notebook on the left and the dog on the right.
+
+  * Closed the browser tab? Click the Go2 Lab window and press Return.
+    It opens again. The address changes every time you start the lab,
+    so there is no bookmark worth keeping.
+
+  * Done for the day? Close the Go2 Lab window, or press Ctrl-C in it.
+    Either one stops the simulator. Your notebooks are already saved in
+    Documents.
+
+
 What gets installed
 -------------------
 Everything lands in two folders you own. Nothing system-wide, and you

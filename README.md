@@ -111,6 +111,16 @@ go2-run my_script.py        # Go2(sim=True, viewer=True) opens a real window
 `go2-lab` picks free ports, mints a fresh token per launch, keeps the simulator
 alive if it crashes, and takes everything down on Ctrl-C.
 
+The terminal it runs in is the **Go2 Lab window** — it titles itself that, so
+it is findable among a dozen others. Two things it does because the URL carries
+a per-launch token and nobody is going to retype it:
+
+- **Press Return** in that window to reopen the lab in the browser. Closing the
+  tab is not a reason to restart the lab.
+- **Closing the window stops the lab**, on purpose. macOS sends `SIGHUP`, which
+  the launcher turns into the same shutdown Ctrl-C does, so JupyterLab and the
+  simulator go with it rather than lingering on their ports.
+
 ### Known constraints
 
 - **Intel Macs** get MuJoCo 3.x: 4.x publishes macOS wheels for Apple Silicon

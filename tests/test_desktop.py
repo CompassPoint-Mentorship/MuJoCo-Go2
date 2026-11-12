@@ -127,3 +127,27 @@ def test_go2_run_executes_a_script(tmp_path, monkeypatch, capsys):
 def test_default_work_dir_is_somewhere_a_student_can_find(monkeypatch):
     monkeypatch.setattr(desktop.platform, "system", lambda: "Darwin")
     assert desktop.default_work_dir().parts[-2:] == ("Documents", "Go2 Simulator")
+
+
+# ---------------------------------------------------------------------------
+# the Go2 Lab window
+# ---------------------------------------------------------------------------
+
+def test_set_window_title_survives_a_non_tty(capsys):
+    """Titling is cosmetic; a redirected stdout must not take the lab down."""
+    desktop._set_window_title("Go2 Lab")
+    assert capsys.readouterr().out == ""
+
+
+def test_watch_returns_when_the_lab_exits():
+    """_watch must notice the child is gone even with nothing on stdin.
+
+    With no tty it is a plain poll loop, which is the path a piped or
+    service-managed launch takes.
+    """
+    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(0.4)"])
+    t0 = time.monotonic()
+    desktop._watch(proc, "http://127.0.0.1:1/never-opened")
+    elapsed = time.monotonic() - t0
+    assert proc.poll() is not None
+    assert elapsed < 5.0, f"_watch hung for {elapsed:.1f}s after the lab exited"

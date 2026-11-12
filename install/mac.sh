@@ -118,8 +118,11 @@ cat > "$LAUNCH" <<LAUNCHER
 #!/bin/bash
 # Written by the Go2 installer. Re-run the installer to update it.
 clear
-echo "Starting the Go2 simulator ... (first run takes a few seconds)"
-echo "Leave this window open. Press Ctrl-C here to stop."
+# Name the window now, not after Python has loaded -- the student is looking
+# at it during the slow part. go2-lab sets the same title again later.
+printf '\033]0;Go2 Lab\007'
+echo "Starting the Go2 Lab ... (the first run takes a few seconds)"
+echo "Leave this Go2 Lab window open. Closing it stops the lab."
 echo
 exec "$VENV/bin/go2-lab" "\$@"
 LAUNCHER
@@ -192,11 +195,15 @@ say "Done."
 if [ "$OS" = "Darwin" ]; then
   cat <<DONE
 
-  Start it:   open your Applications folder and double-click
-              "Go2 Simulator"
-              (Finder > Go > Home > Applications)
+  Start it:   press Command-Space, type "Go2 Simulator", press Return.
 
-  Or in a terminal:   $LAUNCH
+              Or in Finder: press Shift-Command-H to open your home
+              folder, then open the "Applications" folder inside it.
+              That is your personal one ($HOME/Applications) -- not
+              the system Applications in the Finder sidebar, which
+              would have needed your password.
+
+  From a terminal:    $LAUNCH
 
   The first time, macOS may ask whether Terminal can read your
   Documents folder. Say yes -- that is where your notebooks are kept.

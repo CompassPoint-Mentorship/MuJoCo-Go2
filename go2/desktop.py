@@ -29,6 +29,7 @@ import argparse
 import os
 import pathlib
 import platform
+import select
 import shutil
 import signal
 import socket
@@ -220,10 +221,65 @@ def _die_on_signal(signum, _frame):
     raise KeyboardInterrupt(f"signal {signum}")
 
 
+WINDOW_TITLE = "Go2 Lab"
+
+
+def _set_window_title(text: str) -> None:
+    """Name this terminal window after the thing it runs.
+
+    Terminal.app otherwise titles the window after the file it is running --
+    "go2-lab.command" -- which is a filename, not something a student put
+    there on purpose. With several windows open, the one holding the lab
+    should be the one that says so.
+    """
+    try:
+        if sys.stdout.isatty():
+            sys.stdout.write(f"\033]0;{text}\007")
+            sys.stdout.flush()
+    except (AttributeError, ValueError, OSError):  # redirected or closed
+        pass
+
+
+def _watch(lab: subprocess.Popen, url: str) -> None:
+    """Wait for JupyterLab to exit; reopen the browser on every Return.
+
+    The URL carries a per-launch token, so it is long and nobody is going to
+    retype it. Close the tab and the only copy is somewhere up the scrollback
+    -- which is a silly reason to have to restart the lab. Return brings the
+    tab back.
+    """
+    interactive = os.name == "posix"
+    try:
+        interactive = interactive and sys.stdin is not None and sys.stdin.isatty()
+    except (AttributeError, ValueError, OSError):
+        interactive = False
+
+    while lab.poll() is None:
+        if not interactive:
+            time.sleep(0.5)
+            continue
+        try:
+            ready, _, _ = select.select([sys.stdin], [], [], 0.5)
+        except (OSError, ValueError):  # stdin went away under us
+            interactive = False
+            continue
+        if not ready:
+            continue
+        if sys.stdin.readline() == "":
+            # Ctrl-D or a closed stdin. Not a request to stop the lab -- just
+            # the end of anyone pressing Return at us.
+            interactive = False
+            continue
+        print(f"  opening {url}")
+        webbrowser.open(url)
+
+
 def run_lab(args: argparse.Namespace) -> int:
     _require("PIL", 'pip install "go2[lab]"')
     _require("jupyterlab", 'pip install "go2[lab]"')
     _require("jupyter_server_proxy", 'pip install "go2[lab]"')
+
+    _set_window_title(WINDOW_TITLE)
 
     work = pathlib.Path(args.work).expanduser() if args.work else default_work_dir()
     seed_work_dir(work)
@@ -291,17 +347,20 @@ def run_lab(args: argparse.Namespace) -> int:
 
         url = f"http://127.0.0.1:{lab_port}/proxy/{sim_port}/split?token={token}"
         print()
-        print("  Go2 simulator is running.")
-        print(f"  {url}")
+        print("  " + "-" * 68)
+        print("  Go2 Lab is running. Keep this window open.")
         print()
-        print(f"  Your notebooks: {work}")
-        print("  Press Ctrl-C in this window to stop.")
+        print(f"    lab        {url}")
+        print(f"    notebooks  {work}")
+        print()
+        print("    Press Return here to open the lab in your browser again.")
+        print("    Press Ctrl-C here, or close this window, to stop the lab.")
+        print("  " + "-" * 68)
         print()
         if not args.no_browser:
             webbrowser.open(url)
 
-        while lab.poll() is None:
-            time.sleep(0.5)
+        _watch(lab, url)
         print("[go2] JupyterLab exited.", file=sys.stderr)
     except KeyboardInterrupt:
         print("\n[go2] stopping ...")
