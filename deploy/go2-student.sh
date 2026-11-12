@@ -28,6 +28,29 @@ host_ip() {
     | awk '$2 !~ /^(docker|br-|veth|tailscale)/ {split($4,a,"/"); print a[1]; exit}'
 }
 
+# Every address this host answers on. A student may be on the office LAN or on
+# the tailnet, so print both rather than guessing which link they can open.
+host_ips() {
+  local ts lan
+  if command -v tailscale >/dev/null 2>&1; then
+    ts="$(tailscale ip -4 2>/dev/null | head -1 || true)"
+    [ -n "$ts" ] && printf '%s\ttailnet\n' "$ts"
+  fi
+  lan="$(ip -4 -o addr show scope global 2>/dev/null \
+    | awk '$2 !~ /^(docker|br-|veth|tailscale)/ {split($4,a,"/"); print a[1]; exit}')"
+  [ -n "$lan" ] && printf '%s\tlan\n' "$lan"
+}
+
+# One link per address, labelled.
+links_for() {
+  # shellcheck disable=SC1090
+  ( . "$1"
+    host_ips | while IFS=$'\t' read -r ip kind; do
+      printf '  %-9s http://%s:%s/lab?token=%s\n' "($kind)" "$ip" "$LAB_PORT" "$LAB_TOKEN"
+    done )
+}
+
+# Single best-guess link, for the compact list view.
 link_for() {
   # shellcheck disable=SC1090
   ( . "$1"; printf 'http://%s:%s/lab?token=%s\n' "$(host_ip)" "$LAB_PORT" "$LAB_TOKEN" )
@@ -66,7 +89,8 @@ EOF
 
   echo "Created student '$NAME'"
   echo "  work dir  $WORK"
-  echo "  link      $(link_for "$ENVF")"
+  echo "  links:"
+  links_for "$ENVF"
   echo
   echo "Start it with:  ./go2-student.sh up $NAME"
   ;;
@@ -77,8 +101,8 @@ up)
   [ -e "$ENVF" ] || { echo "error: no such student '$NAME'. Run: ./go2-student.sh create $NAME"; exit 1; }
   docker compose --env-file "$ENVF" -p "go2-$NAME" up -d --build
   echo
-  echo "Send this link to $NAME:"
-  echo "  $(link_for "$ENVF")"
+  echo "Send $NAME whichever link matches their network:"
+  links_for "$ENVF"
   ;;
 
 down)
@@ -99,18 +123,24 @@ link)
   [ $# -eq 1 ] || usage
   NAME="$1"; ENVF="$STUDENTS/$NAME.env"
   [ -e "$ENVF" ] || { echo "error: no such student '$NAME'"; exit 1; }
-  link_for "$ENVF"
+  links_for "$ENVF"
   ;;
 
 list)
-  printf '%-14s %-6s %-26s %s\n' STUDENT PORT STATUS LINK
+  printf '%-14s %-6s %-26s %s\n' STUDENT PORT STATUS TOKEN
   shopt -s nullglob
   for f in "$STUDENTS"/*.env; do
     # shellcheck disable=SC1090
     ( . "$f"
       st=$(docker ps --filter "name=go2-lab-$STUDENT" --format '{{.Status}}' | head -1)
-      printf '%-14s %-6s %-26s %s\n' "$STUDENT" "$LAB_PORT" "${st:-stopped}" "$(link_for "$f")" )
+      printf '%-14s %-6s %-26s %s\n' "$STUDENT" "$LAB_PORT" "${st:-stopped}" "$LAB_TOKEN" )
   done
+  echo
+  echo "Links are http://<address>:<port>/lab?token=<token> on any of:"
+  host_ips | while IFS=$'\t' read -r ip kind; do
+    printf '  %s\t(%s)\n' "$ip" "$kind"
+  done
+  echo "Or: ./go2-student.sh link <name>"
   echo
   echo "GPU:"
   nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader | sed 's/^/  VRAM /'
