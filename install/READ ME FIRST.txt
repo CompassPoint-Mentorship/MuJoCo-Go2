@@ -1,0 +1,53 @@
+Go2 Simulator — installing on a Mac
+===================================
+
+Double-click  "Install Go2 Simulator.command"
+
+
+macOS will probably refuse the first time
+-----------------------------------------
+You may see:
+
+    "Install Go2 Simulator.command" cannot be opened because it is
+    from an unidentified developer.
+
+That is macOS being careful about files from the internet, not a sign
+that anything is wrong. Two ways past it:
+
+  1. Right-click (or Control-click) the file, choose Open, then Open
+     again in the box that appears.
+
+  2. If macOS still refuses: open System Settings > Privacy & Security,
+     scroll to the bottom, and click "Open Anyway" next to the message
+     about this file. Then double-click it again.
+
+You only have to do this once.
+
+
+The warning-free alternative
+----------------------------
+If you are comfortable with Terminal, this skips the warning entirely,
+because files fetched by curl are not quarantined. Open Terminal
+(press Cmd-Space, type Terminal, press Return), paste this one line and
+press Return:
+
+curl -fsSL https://raw.githubusercontent.com/CompassPoint-Mentorship/MuJoCo-Go2/main/install/mac.sh | bash
+
+
+What gets installed
+-------------------
+Everything lands in two folders you own. Nothing system-wide, and you
+are never asked for a password.
+
+  ~/.go2                            the simulator and its own Python
+  ~/Applications/Go2 Simulator.app  the thing you double-click to start
+  ~/Documents/Go2 Simulator         your notebooks (yours to keep)
+
+To remove it later, run  ~/.go2/bin/go2-uninstall  in Terminal. Your
+notebooks are not touched.
+
+
+Requirements
+------------
+  macOS 11 or newer, and WiFi for the install (about 250 MB).
+  Apple Silicon (M1 and later) or Intel; both work.

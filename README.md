@@ -19,11 +19,11 @@ image = dog.camera()       # (480, 640, 3) uint8
 
 Students write their code once. Moving to the real dog changes one argument.
 
-## Two ways to use it
+## Three ways to use it
 
-**Hosted (recommended for a class)** — the student installs nothing. They open a
-link and get an editor, a terminal and the dog rendering inline in notebook
-cells, all running on a shared server. See [deploy/README.md](deploy/README.md).
+**Hosted (recommended for a class)** — the student installs nothing. They open
+a link and get an editor, a terminal and the dog, side by side in one tab, all
+running on a shared server. See [deploy/README.md](deploy/README.md).
 
 ```bash
 cd deploy
@@ -31,39 +31,99 @@ cd deploy
 ./go2-student.sh up     alice     # prints the link to send them
 ```
 
-**Local install** — for working offline, or on your own machine. The rest of
-this file covers that.
-
-## Install
-
-Works natively on **macOS (Apple Silicon or Intel)** and **Ubuntu**. CPU only —
-no GPU, no Docker, no server.
+**On their own laptop** — one command, no git, no Python, no admin password,
+and it works offline afterwards. See [Installing on a laptop](#installing-on-a-laptop).
 
 ```bash
-git clone github-shortvideo:CompassPoint-Mentorship/MuJoCo-Go2.git
-cd MuJoCo-Go2
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e .
+curl -fsSL https://raw.githubusercontent.com/CompassPoint-Mentorship/MuJoCo-Go2/main/install/mac.sh | bash
 ```
 
-Then:
-
-| | Command |
-|---|---|
-| **Ubuntu** | `python examples/01_hello_dog.py` |
-| **macOS** | `mjpython examples/01_hello_dog.py` |
-
-macOS requires GUI windows to own the main thread, so scripts that open the
-viewer must start with `mjpython` (it ships inside the `mujoco` wheel — you
-already have it). Everything headless — `Go2(viewer=False)` — runs under plain
-`python` on both. If you forget, the error message tells you.
-
-## Watch it in a browser instead
-
-No window, no `mjpython`, nothing installed on the viewer's machine:
+**From source** — for mentors and anyone changing the simulator itself.
 
 ```bash
-pip install -e ".[web]"
+git clone https://github.com/CompassPoint-Mentorship/MuJoCo-Go2.git
+cd MuJoCo-Go2
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[lab,dev]"
+go2-lab                            # the same lab the installer sets up
+```
+
+## Installing on a laptop
+
+Works natively on **macOS** (Apple Silicon or Intel) and **Ubuntu**. CPU only —
+no GPU, no Docker, no server, and after the install no network either.
+
+The student runs one line in Terminal:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/CompassPoint-Mentorship/MuJoCo-Go2/main/install/mac.sh | bash
+```
+
+or, if they would rather not touch a terminal, downloads
+`Go2-Simulator-macOS.zip` from the releases page and double-clicks
+**Install Go2 Simulator**. Build that zip with `install/make-zip.sh`; it holds
+the installer and a note about Gatekeeper, not the simulator, so it never goes
+stale.
+
+Then they open **Go2 Simulator** from their Applications folder. A browser tab
+opens with the notebook on the left and the dog on the right — the same page
+the server serves.
+
+| | Where |
+|---|---|
+| The program | `~/.go2` (its own Python; nothing system-wide) |
+| The launcher | `~/Applications/Go2 Simulator.app` |
+| Their work | `~/Documents/Go2 Simulator` |
+| Uninstall | `~/.go2/bin/go2-uninstall` — leaves the notebooks alone |
+
+Re-running the installer upgrades in place.
+
+### Why the local viewer is a browser page, not a native window
+
+MuJoCo has a perfectly good 3D window, and the obvious thing to ship for macOS
+would be that. The installer sets up the browser lab instead, for three
+reasons:
+
+- **One UI.** A student who works in class and at home learns one layout, not
+  two. The local page *is* the hosted page, served from `127.0.0.1`.
+- **The microphone works for free.** Browsers grant `getUserMedia` on a secure
+  context, and `localhost` counts as one. The self-signed-certificate dance the
+  shared server needs simply does not arise here.
+- **No `mjpython`.** macOS insists GUI windows own the main thread, which is
+  why MuJoCo ships a separate `mjpython` launcher. A page has no such rule, so
+  one code path covers macOS and Ubuntu.
+
+The native window is still one command away, and `go2-run` re-execs itself
+under `mjpython` on macOS so you never have to remember to:
+
+```bash
+go2-run my_script.py        # Go2(sim=True, viewer=True) opens a real window
+```
+
+### Commands the install adds
+
+| Command | Does |
+|---|---|
+| `go2-lab` | Simulator + JupyterLab + viewer, one browser tab |
+| `go2-lab --check` | Self-test: prints what works and what does not |
+| `go2-run script.py` | Run a script; handles macOS's `mjpython` rule |
+
+`go2-lab` picks free ports, mints a fresh token per launch, keeps the simulator
+alive if it crashes, and takes everything down on Ctrl-C.
+
+### Known constraints
+
+- **Intel Macs** get MuJoCo 3.x: 4.x publishes macOS wheels for Apple Silicon
+  only. The installer detects this and pins accordingly. Everything works; it
+  is slower.
+- **macOS 11+** — that is MuJoCo's own floor.
+- The install pulls about 250 MB the first time, Python included.
+
+## Watch it in a browser without the lab
+
+A bare viewer, no JupyterLab, no notebooks:
+
+```bash
 python -m go2.web                   # then open http://<host>:8300/
 ```
 
@@ -177,13 +237,15 @@ go2/
     real.py           physical Go2 Pro — not implemented yet (step 2)
   web.py              browser viewer, split page, and the service's HTTP API
   service.py          `python -m go2.service` -- a long-lived simulator
+  desktop.py          `go2-lab` / `go2-run` -- the whole lab on one laptop
   audio.py            clips the dog can say, and which one is playing
   notebook.py         panel()/show()/live()/drive() -- renders inline in Jupyter
   assets/
     arena.xml         our scene
     go2.xml, assets/  Go2 model vendored from MuJoCo Menagerie (BSD-3, Unitree)
-examples/             runnable student examples
-notebooks/            starter notebook, copied to each student on create
+  coursework/         starter notebook and examples -- copied into each
+                      student's folder, hosted or local, and the only copy
+install/              laptop installer (mac.sh), the download zip, Gatekeeper note
 deploy/               hosted mode: Dockerfile, compose, go2-student.sh
 tests/                pytest suite, headless
 ```
@@ -202,6 +264,8 @@ kept as `LICENSE` and `UPSTREAM_README.md` for diffing on upgrade.
       watched and driven from any machine with no local install
 - [x] **Step 5b** — hosted mode: one JupyterLab container per student, a link
       each, nothing installed on their machine (`deploy/`)
+- [x] **Step 5c** — laptop install: one command on macOS or Ubuntu, same lab,
+      works offline afterwards (`install/`)
 
 ### About the real robot (step 2)
 

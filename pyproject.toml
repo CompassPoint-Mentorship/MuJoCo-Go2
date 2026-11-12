@@ -17,12 +17,34 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=7", "pillow>=10"]
 web = ["pillow>=10"]
+# Everything a laptop needs to run the same lab the server runs: the
+# simulator service, JupyterLab, and the proxy that lets one page frame both.
+lab = [
+    "pillow>=10",
+    "jupyterlab>=4.1",
+    "jupyter-server-proxy>=4.1",
+    "notebook>=7",
+    "ipywidgets>=8",
+]
+
+[project.scripts]
+go2-lab = "go2.desktop:main"
+go2-run = "go2.desktop:run_script"
 
 [tool.setuptools.packages.find]
 include = ["go2*"]
 
 [tool.setuptools.package-data]
-go2 = ["assets/*.xml", "assets/assets/*", "assets/LICENSE", "assets/UPSTREAM_README.md"]
+go2 = [
+    "assets/*.xml",
+    "assets/assets/*",
+    "assets/LICENSE",
+    "assets/UPSTREAM_README.md",
+    # Course material travels with the package, so a pip install from GitHub
+    # gives a student the notebooks too -- no second download, and the hosted
+    # labs seed from the same copy.
+    "coursework/*",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

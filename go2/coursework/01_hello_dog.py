@@ -1,7 +1,9 @@
 """Hello, dog. Walk forward, turn, stop.
 
-    python  examples/01_hello_dog.py      (Ubuntu)
-    mjpython examples/01_hello_dog.py     (macOS -- GUI must own the main thread)
+    go2-run 01_hello_dog.py
+
+go2-run works on both macOS and Ubuntu: on macOS it re-runs itself under
+mjpython, because a GUI window there must own the main thread.
 """
 
 from go2 import Go2

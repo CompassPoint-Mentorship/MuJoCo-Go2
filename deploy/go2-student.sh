@@ -96,7 +96,10 @@ create)
   mkdir -p "$WORK"
   # The container runs as uid 1000; make sure it can write the student's work.
   chmod 2777 "$WORK"
-  cp -n "$ROOT"/notebooks/*.ipynb "$WORK"/ 2>/dev/null || true
+  # Course material lives inside the package so that a local pip install on a
+  # laptop gets the same notebooks this server hands out. -n never overwrites
+  # a student's own edits.
+  cp -n "$ROOT"/go2/coursework/* "$WORK"/ 2>/dev/null || true
 
   cat > "$ENVF" <<EOF
 # JupyterLab + Go2 simulator for: $NAME
