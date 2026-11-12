@@ -224,7 +224,9 @@ list)
   printf '%-14s %-6s %-26s %s\n' STUDENT PORT STATUS TOKEN
   shopt -s nullglob
   for f in "$STUDENTS"/*.env; do
-    # shellcheck disable=SC1090
+    # SC1090: the path is a variable. SC2153: STUDENT, LAB_PORT and LAB_TOKEN
+    # are set BY the file being sourced, which shellcheck cannot see.
+    # shellcheck disable=SC1090,SC2153
     ( . "$f"
       st=$(docker ps --filter "name=go2-lab-$STUDENT" --format '{{.Status}}' | head -1)
       printf '%-14s %-6s %-26s %s\n' "$STUDENT" "$LAB_PORT" "${st:-stopped}" "$LAB_TOKEN" )

@@ -361,6 +361,9 @@ if [ "$OS" = "Darwin" ]; then
     NOTEBOOKS="your Documents folder, under \"Go2 Notebooks\""
   fi
 else
+  # shellcheck disable=SC2088  # prose for a human, not a path we open: the
+  # other branches are whole English sentences, and "~/go2-lab" is friendlier
+  # to read than an expanded /home/<name>/go2-lab.
   NOTEBOOKS="~/go2-lab"
 fi
 

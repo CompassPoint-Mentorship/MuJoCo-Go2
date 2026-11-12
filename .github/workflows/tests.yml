@@ -1,0 +1,60 @@
+# The test suite, on every push and pull request.
+#
+# The runner has no GPU, so rendering is software: MUJOCO_GL=osmesa plus the
+# same GL packages deploy/Dockerfile installs. Everything the viewer does
+# rests on offscreen rendering working, so the suite would be hollow without
+# it -- this is not an optional extra.
+name: tests
+
+on: [push, pull_request]
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # What most students get.
+          - {python: "3.12", mujoco: "", label: "current"}
+          # What an INTEL MAC gets: 3.10 is the last release with an x86_64
+          # macOS wheel, so this leg is the standing check that our code and
+          # our arena still work there. It was verified by hand once, on the
+          # day the Intel pin was fixed; this keeps it true.
+          - {python: "3.12", mujoco: "mujoco==3.10.0", label: "intel-mac pin"}
+          # Our oldest supported Python (pyproject: requires-python >=3.10).
+          # MuJoCo 4.x needs >=3.11, so this leg also exercises the 3.x path.
+          - {python: "3.10", mujoco: "", label: "oldest python"}
+    name: pytest (${{ matrix.label }})
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "${{ matrix.python }}"
+          cache: pip
+      - name: Software OpenGL (no GPU on the runner)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libosmesa6 libgl1 libglib2.0-0
+      - run: pip install -e ".[dev]" ${{ matrix.mujoco }}
+      - run: python -c "import mujoco; print('mujoco', mujoco.__version__)"
+      - run: pytest -q
+        env:
+          MUJOCO_GL: osmesa
+
+  shellcheck:
+    # The installer and the deployment scripts are a third of this project by
+    # consequence: they run on machines we never see. The supervisor bug in
+    # ede55d7 -- `set -e` silently disarming a `while true` restart loop --
+    # is exactly the class of thing this catches.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: shellcheck install/mac.sh install/make-zip.sh
+                        deploy/entrypoint.sh deploy/go2-student.sh deploy/make-cert.sh
