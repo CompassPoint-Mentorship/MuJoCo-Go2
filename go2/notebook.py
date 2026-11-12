@@ -71,8 +71,10 @@ def live(
     """Animate the dog in the cell output for `seconds`.
 
     The dog keeps doing whatever it was last told to do -- this only watches.
-    Use it after a move() to see the result, the way you would watch the
-    viewer window.
+
+    You rarely need this in hosted mode: the panel beside the notebook is
+    already live. It is for a local install with no panel, or for deliberately
+    capturing motion in the notebook output.
     """
     Image, display = _display()
     interval = 1.0 / max(1, fps)
@@ -91,14 +93,24 @@ def live(
 
 
 def drive(dog: Go2, vx: float = 0.0, vy: float = 0.0, wz: float = 0.0,
-          seconds: float = 3.0, **kwargs):
-    """Move for a fixed time while watching, then stop. A one-line demo helper.
+          seconds: float = 3.0, watch: bool = False, **kwargs):
+    """Move for a fixed time, then stop. Returns the resulting pose.
 
         drive(dog, vx=0.4, seconds=3)
+
+    It draws nothing by default. In hosted mode the live panel beside the
+    notebook already shows the dog, so rendering a second copy into every cell
+    output just clutters the notebook and slows it down.
+
+    Pass `watch=True` to animate it inline anyway -- useful on a local install
+    with no panel open.
     """
     dog.move(vx=vx, vy=vy, wz=wz)
     try:
-        live(dog, seconds=seconds, **kwargs)
+        if watch:
+            live(dog, seconds=seconds, **kwargs)
+        else:
+            dog.wait(seconds)
     finally:
         dog.stop()
     return dog.pose()
