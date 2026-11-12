@@ -26,13 +26,11 @@ under ``mjpython`` on macOS automatically, so ``Go2(viewer=True)`` just works.
 from __future__ import annotations
 
 import argparse
-import filecmp
 import json
 import os
 import pathlib
 import platform
 import select
-import shutil
 import signal
 import socket
 import subprocess
@@ -43,10 +41,10 @@ import urllib.error
 import urllib.request
 import webbrowser
 
+from . import course as go2course
 from .build import build_id, build_info
 
 PKG = pathlib.Path(__file__).resolve().parent
-COURSEWORK = PKG / "coursework"
 
 # Set by go2-run before it re-execs itself under mjpython, so the second run
 # knows not to do it again.
@@ -85,72 +83,9 @@ def default_work_dir() -> pathlib.Path:
     return pathlib.Path.home() / "go2-lab"
 
 
-SEED = ".go2-seed"
-
-
-def _same(a: pathlib.Path, b: pathlib.Path) -> bool:
-    try:
-        return filecmp.cmp(a, b, shallow=False)
-    except OSError:
-        return False
-
-
-def seed_work_dir(work: pathlib.Path) -> list[str]:
-    """Hand over the course material, without ever eating the student's work.
-
-    Same rules as the class server's `go2-student.sh sync`, so a notebook
-    fixed upstream reaches a laptop as well -- "we fixed it, but only for
-    people who have not started yet" is not a fix.
-
-    A copy of exactly what was handed over lives in `.go2-seed`. Comparing it
-    with the student's file is what tells us whether they have touched it,
-    which the old "copy if absent" rule could not: it meant a fix never
-    arrived, for anyone, ever.
-
-        missing          copy it in
-        same as seed     never edited, so replace it
-        anything else    leave it; the new version lands beside it as
-                         <name>.updated.<ext>
-
-    Files the student makes themselves are never considered: only names that
-    exist in the coursework folder are ever looked at.
-
-    Returns one line per thing done, for the launcher to print.
-    """
-    work.mkdir(parents=True, exist_ok=True)
-    if not COURSEWORK.is_dir():
-        return []
-    seed = work / SEED
-    seed.mkdir(exist_ok=True)
-    notes: list[str] = []
-
-    for src in sorted(COURSEWORK.iterdir()):
-        if src.name.startswith((".", "__")) or src.is_dir():
-            continue
-        dst = work / src.name
-        kept = seed / src.name
-
-        if not dst.exists():
-            shutil.copy2(src, dst)
-            shutil.copy2(src, kept)
-            notes.append(f"added {src.name}")
-        elif _same(src, dst):
-            shutil.copy2(src, kept)          # backfill for older installs
-        elif kept.exists() and _same(kept, dst):
-            shutil.copy2(src, dst)
-            shutil.copy2(src, kept)
-            notes.append(f"updated {src.name} (you had not changed it)")
-        else:
-            new = dst.with_name(f"{src.stem}.updated{src.suffix}")
-            if new.exists() and kept.exists() and not _same(new, kept):
-                # They have started working in the copy we left last time, so
-                # it is theirs now and gets the same protection.
-                notes.append(f"kept your {src.name} and your {new.name}")
-            elif not (new.exists() and _same(src, new)):
-                shutil.copy2(src, new)
-                notes.append(f"kept your {src.name}; the new one is {new.name}")
-            shutil.copy2(src, kept)
-    return notes
+def seed_work_dir(work: pathlib.Path, course: str | None = None) -> list[str]:
+    """Hand the course material over. The rules live in go2.course, once."""
+    return go2course.sync(work, go2course.resolve(course))
 
 
 def _jupyter_cmd() -> list[str]:
@@ -379,7 +314,8 @@ def run_lab(args: argparse.Namespace) -> int:
         pass
 
     work = pathlib.Path(args.work).expanduser() if args.work else default_work_dir()
-    for note in seed_work_dir(work):
+    pack = go2course.resolve(args.course_pack)
+    for note in go2course.sync(work, pack):
         print(f"[go2] {note}")
 
     sim_port = args.sim_port or _free_port()
@@ -453,6 +389,7 @@ def run_lab(args: argparse.Namespace) -> int:
         print()
         print("  " + "-" * 68)
         print("  Go2 Lab is running. Keep this window open.")
+        print(f"  {go2course.describe(pack)}")
         print(f"  build {build_id()}")
         print()
         print(f"    lab        {url}")
@@ -619,6 +556,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--height", type=int, default=360)
     ap.add_argument("--fps", type=int, default=12)
     ap.add_argument("--scene", default=None, help="path to an alternative MJCF arena")
+    ap.add_argument("--course", dest="course_pack", default=None,
+                    help="course pack to hand out (default: $GO2_COURSE, "
+                         "an installed pack, or the bundled one)")
     ap.add_argument("--no-browser", action="store_true", help="do not open a browser")
     args = ap.parse_args(argv)
 
@@ -627,6 +567,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"go2-lab build {info['build']}")
         if info["sha"]:
             print(f"  source  {info['sha']}  from {info['source']}")
+        try:
+            pack = go2course.resolve()
+            print(f"  course  {go2course.describe(pack)}  [{pack}]")
+        except FileNotFoundError:
+            print("  course  none found")
         print(f"  python  {sys.version.split()[0]}  ({sys.executable})")
         print(f"  on      {platform.system()} {platform.release()} {platform.machine()}")
         return 0

@@ -1,0 +1,38 @@
+# A course pack: the material a class works through, described well enough
+# that a tool can hand it out, order it and check it.
+#
+# This is the default pack, the one that ships inside the wheel so a laptop
+# install has something to open with no network. Any other pack -- a newer
+# term, a different class -- is a directory of exactly this shape, and the
+# lab is told about it with `--course <path>` or $GO2_COURSE. Nothing in the
+# engine knows where a pack came from.
+
+[course]
+id      = "go2-intro"
+title   = "Programming a Robot Dog"
+version = "2026.11.12"
+# Refuse to seed into an engine too old to run this material, rather than
+# handing a student a notebook that fails on an import.
+engine  = ">=0.1"
+summary = """
+Drive a simulated Unitree Go2: move it, read where it is, look through its
+camera, make it talk. The same code runs on the real dog.
+"""
+
+[[unit]]
+id    = "01-hello-dog"
+title = "Hello, dog"
+goal  = "Connect to the dog, move it, read its pose."
+files = ["01_hello_dog.ipynb", "01_hello_dog.py"]
+
+[[unit]]
+id    = "02-walk-a-square"
+title = "Walk a square"
+goal  = "Sequence moves and turns; see why a command persists."
+files = ["02_walk_a_square.py"]
+
+[[unit]]
+id    = "03-camera"
+title = "Look through its eyes"
+goal  = "Take a frame from the dog's camera and work with the pixels."
+files = ["03_camera.py"]

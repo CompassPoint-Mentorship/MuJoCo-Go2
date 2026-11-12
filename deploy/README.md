@@ -29,6 +29,12 @@ are allocated from **8400**, one per student, in creation order.
 anyone. `sync <name>` or `sync --all` catches them up, and `-n` shows what it
 would do without writing anything.
 
+The rules live in the engine (`go2-course sync`), not in this script, so a
+student on a laptop and a student on this server get the same material by the
+same rules — two implementations of "replace what nobody touched" would drift
+apart within a term. `GO2_COURSE_PACK=/srv/courses/go2-intro-2026.12` points a
+whole class at a different pack without touching the image.
+
 It keeps a copy of what it last handed over in `student-work/<name>/.go2-seed`
 (hidden from JupyterLab's file browser). That copy is what makes updating safe:
 comparing it with the student's file says whether they have *touched* it.

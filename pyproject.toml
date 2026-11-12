@@ -30,6 +30,7 @@ lab = [
 [project.scripts]
 go2-lab = "go2.desktop:main"
 go2-run = "go2.desktop:run_script"
+go2-course = "go2.course:main"
 
 [tool.setuptools.packages.find]
 include = ["go2*"]
@@ -43,7 +44,8 @@ go2 = [
     # Course material travels with the package, so a pip install from GitHub
     # gives a student the notebooks too -- no second download, and the hosted
     # labs seed from the same copy.
-    "coursework/*",
+    "course_pack/course.toml",
+    "course_pack/units/*",
 ]
 
 [tool.pytest.ini_options]

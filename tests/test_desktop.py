@@ -16,54 +16,54 @@ import time
 
 import pytest
 
-from go2 import desktop
+from go2 import course, desktop
 
 
-def test_coursework_ships_with_the_package():
+def test_the_bundled_course_ships_with_the_package():
     # If this fails, a pip install from GitHub gives a student a simulator and
     # no notebook to open -- which looks like a broken install.
-    assert desktop.COURSEWORK.is_dir()
-    names = {p.name for p in desktop.COURSEWORK.iterdir()}
+    assert course.units_dir(course.BUNDLED).is_dir()
+    names = {p.name for p in course.units_dir(course.BUNDLED).iterdir()}
     assert "01_hello_dog.ipynb" in names
 
 
 def test_seed_work_dir_copies_the_course_material(tmp_path):
     work = tmp_path / "Go2 Simulator"
-    desktop.seed_work_dir(work)
+    course.sync(work, course.BUNDLED)
     assert (work / "01_hello_dog.ipynb").exists()
 
 
 def test_seed_work_dir_never_overwrites_student_work(tmp_path):
     work = tmp_path / "work"
-    desktop.seed_work_dir(work)
+    course.sync(work, course.BUNDLED)
     mine = work / "01_hello_dog.ipynb"
     mine.write_text("my own edits")
 
-    notes = desktop.seed_work_dir(work)   # e.g. they launch again tomorrow
+    notes = course.sync(work, course.BUNDLED)   # e.g. they launch again tomorrow
 
     assert mine.read_text() == "my own edits"
     # ...and the fixed version arrives beside it rather than not at all.
     new = work / "01_hello_dog.updated.ipynb"
     assert new.exists()
-    assert new.read_bytes() == (desktop.COURSEWORK / "01_hello_dog.ipynb").read_bytes()
+    assert new.read_bytes() == (course.units_dir(course.BUNDLED) / "01_hello_dog.ipynb").read_bytes()
     assert any("kept your" in n for n in notes)
 
 
 def test_seed_work_dir_updates_a_file_the_student_never_touched(tmp_path):
     """The whole point: a fix upstream has to reach a laptop too."""
     work = tmp_path / "work"
-    desktop.seed_work_dir(work)
+    course.sync(work, course.BUNDLED)
     dst = work / "01_hello_dog.ipynb"
 
     # Pretend the course material changed under us.
-    seeded = work / desktop.SEED / "01_hello_dog.ipynb"
+    seeded = work / course.SEED / "01_hello_dog.ipynb"
     stale = b"the old version"
     dst.write_bytes(stale)
     seeded.write_bytes(stale)
 
-    notes = desktop.seed_work_dir(work)
+    notes = course.sync(work, course.BUNDLED)
 
-    assert dst.read_bytes() == (desktop.COURSEWORK / "01_hello_dog.ipynb").read_bytes()
+    assert dst.read_bytes() == (course.units_dir(course.BUNDLED) / "01_hello_dog.ipynb").read_bytes()
     assert not (work / "01_hello_dog.updated.ipynb").exists()
     assert any("updated" in n for n in notes)
 
@@ -71,14 +71,14 @@ def test_seed_work_dir_updates_a_file_the_student_never_touched(tmp_path):
 def test_seed_work_dir_leaves_the_students_own_files_alone(tmp_path):
     """Nothing is ever looked at unless the coursework folder names it."""
     work = tmp_path / "work"
-    desktop.seed_work_dir(work)
+    course.sync(work, course.BUNDLED)
     mine = work / "my_experiment.py"
     mine.write_text("dog.move(vx=9)")
     notebook = work / "my notes.ipynb"
     notebook.write_text("{}")
 
-    desktop.seed_work_dir(work)
-    desktop.seed_work_dir(work)
+    course.sync(work, course.BUNDLED)
+    course.sync(work, course.BUNDLED)
 
     assert mine.read_text() == "dog.move(vx=9)"
     assert notebook.read_text() == "{}"
@@ -86,20 +86,20 @@ def test_seed_work_dir_leaves_the_students_own_files_alone(tmp_path):
 
 def test_seed_work_dir_is_quiet_when_nothing_changed(tmp_path):
     work = tmp_path / "work"
-    assert desktop.seed_work_dir(work)            # first time: all added
-    assert desktop.seed_work_dir(work) == []      # second time: silence
+    assert course.sync(work, course.BUNDLED)            # first time: all added
+    assert course.sync(work, course.BUNDLED) == []      # second time: silence
 
 
 def test_seed_work_dir_protects_the_updated_copy_once_it_is_used(tmp_path):
     work = tmp_path / "work"
-    desktop.seed_work_dir(work)
+    course.sync(work, course.BUNDLED)
     (work / "01_hello_dog.ipynb").write_text("my own edits")
-    desktop.seed_work_dir(work)
+    course.sync(work, course.BUNDLED)
 
     # The student starts working in the fixed copy we left them.
     theirs = work / "01_hello_dog.updated.ipynb"
     theirs.write_text("my work, in the new one")
-    notes = desktop.seed_work_dir(work)
+    notes = course.sync(work, course.BUNDLED)
 
     assert theirs.read_text() == "my work, in the new one"
     assert any("and your" in n for n in notes)
@@ -267,13 +267,13 @@ def test_watchers_endpoint_tracks_frame_fetches():
         dog.close()
 
 
-def test_coursework_hardcodes_no_simulator_port():
+def test_the_bundled_course_hardcodes_no_simulator_port():
     """go2-lab picks a free port, so a hardcoded one only works on the server.
 
     This is exactly how it failed on a laptop: ConnectionRefusedError from a
     notebook cell, in a lesson about audio, which tells the student nothing.
     """
-    for path in desktop.COURSEWORK.iterdir():
+    for path in course.units_dir(course.BUNDLED).iterdir():
         if path.suffix in (".py", ".ipynb"):
             assert "127.0.0.1:8399" not in path.read_text(), f"{path.name} pins a port"
 

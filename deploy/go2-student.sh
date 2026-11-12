@@ -77,70 +77,35 @@ link_for() {
   ( . "$1"; printf '%s://%s:%s/lab?token=%s\n' "$(scheme)" "$(host_ip)" "$LAB_PORT" "$LAB_TOKEN" )
 }
 
-SEED=".go2-seed"
-
-# Give one student the course material, without ever eating their work.
+# Handing out the course material is the engine's job, not this script's: the
+# rules (replace what nobody touched, never overwrite an edit) have to be the
+# same here as on a student's laptop, and two implementations of them would
+# drift within a term. So this calls `go2-course sync`, which is the same code
+# the laptop launcher runs.
 #
-# $WORK/.go2-seed keeps a copy of exactly what we last handed over. That copy
-# is the whole point: comparing it with the student's file says whether they
-# have touched it, which `cp -n` cannot tell us -- and overwriting a notebook
-# a student has spent an afternoon in is not a mistake you get to undo.
-#
-#   file missing      -> copy it in
-#   same as the seed  -> never edited, so replace it
-#   anything else     -> leave theirs alone, put the new one beside it as
-#                        <name>.updated.<ext>, and say so
-#
-# Students created before the seed existed have no seed, so everything they
-# have counts as edited. That is the safe way round to be wrong.
-#
-# Dotfiles stay out of JupyterLab's file browser, so .go2-seed is invisible.
-seed_work() {
-  local work="$1" dry="${2:-}" seedir="$1/$SEED"
-  local src base dst sdst stem ext new
-  local added=0 replaced=0 kept=0 current=0
-  [ -n "$dry" ] || mkdir -p "$seedir"
-  for src in "$ROOT"/go2/coursework/*; do
-    [ -f "$src" ] || continue
-    base="$(basename "$src")"
-    dst="$work/$base"
-    sdst="$seedir/$base"
-    if [ ! -e "$dst" ]; then
-      [ -n "$dry" ] || { cp "$src" "$dst"; cp "$src" "$sdst"; chmod 664 "$dst"; }
-      echo "      + $base"
-      added=$((added + 1))
-    elif cmp -s "$src" "$dst"; then
-      [ -n "$dry" ] || cp "$src" "$sdst"
-      current=$((current + 1))
-    elif [ -e "$sdst" ] && cmp -s "$sdst" "$dst"; then
-      [ -n "$dry" ] || { cp "$src" "$dst"; cp "$src" "$sdst"; chmod 664 "$dst"; }
-      echo "      ^ $base   (untouched, replaced)"
-      replaced=$((replaced + 1))
-    else
-      case "$base" in
-        *.*) stem="${base%.*}"; ext=".${base##*.}" ;;
-        *)   stem="$base"; ext="" ;;
-      esac
-      new="$work/${stem}.updated${ext}"
-      # The copy left beside theirs is a file a student will reasonably start
-      # working in -- it is the fixed one. So it gets the same protection as
-      # anything else of theirs: only ever written when it is absent, or
-      # still exactly as we left it.
-      if [ -e "$new" ] && [ -e "$sdst" ] && ! cmp -s "$new" "$sdst"; then
-        echo "      ! $base   (yours kept; so is ${stem}.updated${ext}, which you have edited)"
-      elif cmp -s "$src" "$new" 2>/dev/null; then
-        echo "      ! $base   (yours kept; ${stem}.updated${ext} is already current)"
-      else
-        [ -n "$dry" ] || { cp "$src" "$new"; chmod 664 "$new"; }
-        echo "      ! $base   (yours kept -- new one is ${stem}.updated${ext})"
-      fi
-      [ -n "$dry" ] || cp "$src" "$sdst"
-      kept=$((kept + 1))
-    fi
-  done
-  printf '      %d added, %d replaced, %d kept as-is, %d already current\n' \
-    "$added" "$replaced" "$kept" "$current"
+# Preferring the repo's own venv keeps a clone working with no install; the
+# PYTHONPATH fallback keeps it working with no venv either.
+go2_python() {
+  if [ -x "$ROOT/.venv/bin/python" ]; then
+    printf '%s' "$ROOT/.venv/bin/python"
+  elif command -v python3 >/dev/null 2>&1; then
+    printf '%s' "$(command -v python3)"
+  else
+    return 1
+  fi
 }
+
+seed_work() {   # seed_work <workdir> [dry]
+  local work="$1" dry="${2:-}" py
+  py="$(go2_python)" || die "no python3 on this host, so the course material
+cannot be handed out. Install python3, or run: pip install -e $ROOT"
+  PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$ROOT" "$py" -m go2.course \
+      ${GO2_COURSE_PACK:+--course "$GO2_COURSE_PACK"} \
+      sync --into "$work" ${dry:+--dry-run} \
+    | sed 's/^/    /'
+}
+
+die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
 usage() { sed -n '3,10p' "$0"; exit 1; }
 [ $# -ge 1 ] || usage
@@ -236,7 +201,10 @@ sync)
     done
   fi
   [ ${#TARGETS[@]} -gt 0 ] || usage
-  [ -n "$DRY" ] && echo "(dry run: nothing is written)"
+  PY="$(go2_python)" || die "no python3 on this host"
+  PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$ROOT" "$PY" -m go2.course \
+      ${GO2_COURSE_PACK:+--course "$GO2_COURSE_PACK"} show | sed 's/^/  /'
+  echo
   for NAME in "${TARGETS[@]}"; do
     ENVF="$STUDENTS/$NAME.env"
     [ -e "$ENVF" ] || { echo "error: no such student '$NAME'"; exit 1; }

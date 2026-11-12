@@ -87,6 +87,43 @@ an ImportError in a notebook, and the running copy would keep the old code in
 memory anyway, so the fix would look like it had not worked. Close the Go2 Lab
 window first; from a terminal, `GO2_STOP_RUNNING=y` stops it for you.
 
+### Course packs
+
+The engine and the course are different products on different clocks: the
+simulator changes monthly, the notebooks change on the morning somebody finds
+a typo. So the engine knows nothing about any particular course — it knows how
+to find a **pack** and hand it out.
+
+A pack is a directory:
+
+```
+course_pack/
+  course.toml        id, title, version, and the units in order
+  units/             the files a student gets
+```
+
+`go2-lab` and `go2-student.sh sync` resolve one the same way:
+
+```
+--course <path>   >   $GO2_COURSE   >   ~/.go2/courses/<id>   >   the bundled pack
+```
+
+The bundled pack ships inside the wheel so a laptop install has something to
+open with no network and no second step. It is the default, not a special
+case: point `--course` at another directory and it is replaced entirely.
+
+```console
+$ go2-course show
+Programming a Robot Dog 2026.11.12
+  1. Hello, dog  -- Connect to the dog, move it, read its pose.
+  2. Walk a square  -- Sequence moves and turns; see why a command persists.
+
+$ go2-course sync --into ~/go2-lab        # what the lab does at every launch
+```
+
+Course material is **not** a pip package, deliberately. A student should never
+need a second install step, and a syllabus fix should not need a release.
+
 ### Updating the coursework on a laptop
 
 `go2-lab` applies the same rules as the server's `go2-student.sh sync`, every
@@ -305,7 +342,7 @@ go2/
   assets/
     arena.xml         our scene
     go2.xml, assets/  Go2 model vendored from MuJoCo Menagerie (BSD-3, Unitree)
-  coursework/         starter notebook and examples -- copied into each
+  course_pack/        the bundled course: course.toml + units/ -- copied into each
                       student's folder, hosted or local, and the only copy
 install/              laptop installer (mac.sh), the download zip, Gatekeeper note
 deploy/               hosted mode: Dockerfile, compose, go2-student.sh
