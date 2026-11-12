@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "go2"
+version = "0.1.0"
+description = "One Python API for a simulated or real Unitree Go2"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "BSD-3-Clause" }
+dependencies = [
+    "mujoco>=3.2",
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[tool.setuptools.packages.find]
+include = ["go2*"]
+
+[tool.setuptools.package-data]
+go2 = ["assets/*.xml", "assets/assets/*", "assets/LICENSE", "assets/UPSTREAM_README.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

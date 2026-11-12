@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+# Student scratch output
+*.png
+!go2/assets/**/*.png
+*.mp4
+*.npy
+MUJOCO_LOG.TXT
