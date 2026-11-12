@@ -1,0 +1,62 @@
+# Does the laptop install still resolve, on every platform we claim to support?
+#
+# This runs on a SCHEDULE, which is the whole point. The failure it looks for
+# is not caused by our commits: it happens when an upstream release stops
+# shipping a wheel for a platform, on a day nobody here did anything. A
+# student found the last one by having their install die mid-class.
+#
+# It resolves rather than installs, so it needs no Mac runner and no GPU --
+# uv resolves FOR macOS from Linux in seconds.
+name: install-resolves
+
+on:
+  schedule:
+    # Mondays, 06:00 UTC: before the week's classes, after the weekend's
+    # releases. NOTE: GitHub disables scheduled workflows after 60 days with
+    # no repository activity, so a quiet term stops this silently. Run it by
+    # hand from the Actions tab if the repo has been idle.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+  push:
+    paths:
+      - pyproject.toml
+      - install/mac.sh
+      - .github/workflows/install-resolves.yml
+      - .github/check-mujoco-floor.py
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {platform: x86_64-apple-darwin,      label: "Intel Mac"}
+          - {platform: aarch64-apple-darwin,     label: "Apple Silicon"}
+          - {platform: x86_64-unknown-linux-gnu, label: "Linux"}
+    name: resolve (${{ matrix.label }})
+    steps:
+      - uses: actions/checkout@v4
+      # Install uv the same way install/mac.sh does, rather than through an
+      # action: one less thing that can change under the installer we are
+      # supposed to be checking.
+      - run: curl -LsSf https://astral.sh/uv/install.sh | sh
+      - name: Resolve go2[lab] for ${{ matrix.label }}
+        run: |
+          # uv treats an EXISTING output file as a set of preferred pins, so a
+          # leftover resolved.txt makes the answer stable instead of true: an
+          # Apple Silicon run reusing an Intel run's file reports the Intel
+          # version. A fresh checkout has no such file today, but this check
+          # is one actions/cache away from quietly reporting a wrong version,
+          # and a drift detector that lies is worse than no detector.
+          rm -f resolved.txt
+          "$HOME/.local/bin/uv" pip compile pyproject.toml --extra lab \
+            --python-platform ${{ matrix.platform }} --python-version 3.12 \
+            --only-binary mujoco \
+            --only-binary mujoco-core \
+            --only-binary mujoco-studio \
+            --quiet -o resolved.txt
+          grep -E '^(mujoco|numpy|jupyterlab)==' resolved.txt || true
+      # A successful resolve is not the pass condition -- see the script.
+      - run: python3 .github/check-mujoco-floor.py resolved.txt 3.10.0
