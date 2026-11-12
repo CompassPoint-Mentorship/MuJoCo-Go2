@@ -204,6 +204,34 @@ def _handler(dog: Go2, frames: _Frames):
     return Handler
 
 
+def serve_background(
+    dog: Go2,
+    host: str = "127.0.0.1",
+    port: int = 8300,
+    width: int = 960,
+    height: int = 540,
+    fps: int = 20,
+    camera: str = "chase",
+):
+    """Serve an EXISTING dog from a background thread; return (server, frames).
+
+    This is what the notebook helper uses. The caller already owns the dog, so
+    the viewer shows the same simulation the notebook is driving -- not a
+    second, unrelated one.
+
+    Defaults to 127.0.0.1: inside JupyterLab the page is reached through
+    jupyter-server-proxy at /proxy/<port>/, which is same-origin and already
+    authenticated, so the port itself never needs to be exposed.
+    """
+    frames = _Frames(dog, width, height, fps, camera)
+    server = ThreadingHTTPServer((host, port), _handler(dog, frames))
+    server.daemon_threads = True
+    thread = threading.Thread(target=server.serve_forever, daemon=True,
+                              name=f"go2-web-{port}")
+    thread.start()
+    return server, frames
+
+
 def serve(
     host: str = "0.0.0.0",
     port: int = 8300,

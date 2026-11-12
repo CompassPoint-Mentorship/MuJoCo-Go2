@@ -138,3 +138,32 @@ def test_web_viewer_encodes_a_frame(dog):
         assert frames.latest[:2] == b"\xff\xd8", "not a JPEG"
     finally:
         frames.stop()
+
+
+def test_rendering_is_safe_from_two_threads(dog):
+    """An EGL context belongs to one thread; rendering must be serialised.
+
+    Regression: the notebook panel renders on its own thread while show() and
+    live() render on the kernel thread. Sharing the context across both raised
+    EGLError(EGL_BAD_ACCESS) on eglMakeCurrent.
+    """
+    import threading
+
+    errors: list[BaseException] = []
+
+    def worker():
+        try:
+            for _ in range(5):
+                dog.camera(width=96, height=72, camera="chase")
+        except BaseException as exc:  # noqa: BLE001 - recording for the assert
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker) for _ in range(3)]
+    for t in threads:
+        t.start()
+    for _ in range(5):
+        dog.camera(width=96, height=72, camera="head")
+    for t in threads:
+        t.join(timeout=30)
+
+    assert not errors, f"rendering failed off-thread: {errors[0]!r}"

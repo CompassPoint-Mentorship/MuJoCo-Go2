@@ -173,7 +173,7 @@ go2/
     sim.py            MuJoCo backend
     real.py           physical Go2 Pro — not implemented yet (step 2)
   web.py              browser viewer: MJPEG stream + drive controls
-  notebook.py         show()/live()/drive() -- renders inline in Jupyter
+  notebook.py         panel()/show()/live()/drive() -- renders inline in Jupyter
   assets/
     arena.xml         our scene
     go2.xml, assets/  Go2 model vendored from MuJoCo Menagerie (BSD-3, Unitree)

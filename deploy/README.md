@@ -31,6 +31,19 @@ login, so treat the link as a password and send it to that student only.
 the container. It survives rebuilds, restarts and image changes, so you can
 update the image mid-course without losing anybody's code.
 
+## The viewer lives inside the Lab tab
+
+`panel(dog)` in a notebook starts the MJPEG viewer inside the kernel and shows
+it through `jupyter-server-proxy` at `/proxy/<port>/`. Same browser tab, same
+origin, same token -- no second window and no extra port to expose.
+
+For a side-by-side layout, right-click the panel output and choose
+*Create New View for Cell Output*, then drag that tab to the right half of the
+window. Notebook on the left, live dog on the right.
+
+If the port is busy -- a previous kernel, or a second notebook -- `panel()`
+walks forward to the next free one rather than failing.
+
 ## Resources
 
 Measured on a Ryzen 9 9950X + RTX 5090:

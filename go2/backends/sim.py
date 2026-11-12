@@ -30,6 +30,7 @@ import platform
 import sys
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
@@ -89,6 +90,13 @@ class SimBackend(Backend):
         self._clock = 0.0
 
         self._renderer = None
+        # An EGL context belongs to ONE thread: calling eglMakeCurrent from a
+        # second thread fails with EGL_BAD_ACCESS. The notebook's show() runs
+        # on the kernel thread while the web viewer renders on its own, so all
+        # rendering is funnelled through a single worker that owns the context.
+        self._render_pool = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="go2-render"
+        )
         self._viewer = None
         self._realtime = realtime
         self._running = True
@@ -275,6 +283,10 @@ class SimBackend(Backend):
             return Velocity(*self._cmd)
 
     def camera(self, width: int = 640, height: int = 480, camera: str = "head") -> np.ndarray:
+        # Always render on the pool's single thread -- see _render_pool above.
+        return self._render_pool.submit(self._render, width, height, camera).result()
+
+    def _render(self, width: int, height: int, camera: str) -> np.ndarray:
         mujoco = self._mujoco
         if self._renderer is None or self._renderer.width != width or self._renderer.height != height:
             if self._renderer is not None:
@@ -296,11 +308,18 @@ class SimBackend(Backend):
         if self._thread.is_alive():
             self._thread.join(timeout=2.0)
         if self._renderer is not None:
-            self._renderer.close()
-            self._renderer = None
+            # Free the renderer on the thread that owns its EGL context.
+            self._render_pool.submit(self._close_renderer).result(timeout=5.0)
+        self._render_pool.shutdown(wait=True)
         if self._viewer is not None:
             self._viewer.close()
             self._viewer = None
+
+
+    def _close_renderer(self) -> None:
+        if self._renderer is not None:
+            self._renderer.close()
+            self._renderer = None
 
 
 def _wrap(angle: float) -> float:

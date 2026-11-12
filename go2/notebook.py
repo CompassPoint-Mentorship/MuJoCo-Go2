@@ -102,3 +102,86 @@ def drive(dog: Go2, vx: float = 0.0, vy: float = 0.0, wz: float = 0.0,
     finally:
         dog.stop()
     return dog.pose()
+
+
+# --------------------------------------------------------------------------
+# Live panel: the viewer inside JupyterLab, same tab, same simulation.
+# --------------------------------------------------------------------------
+
+_PANELS: dict[int, tuple] = {}
+
+
+def panel(
+    dog: Go2,
+    port: int = 8300,
+    width: int = 960,
+    height: int = 540,
+    fps: int = 20,
+    camera: str = "chase",
+    inline_height: int = 560,
+):
+    """Open a live, drivable view of THIS dog inside the notebook.
+
+        dog = Go2(sim=True, viewer=False)
+        panel(dog)
+
+    Unlike live(), this does not block: the view keeps updating while you run
+    other cells, so you can watch the dog react to each command as you type it.
+
+    It serves the same page as `python -m go2.web`, on 127.0.0.1, reached
+    through jupyter-server-proxy at /proxy/<port>/ -- same browser tab, same
+    login, no second port to open.
+
+    Tip: to get the viewer and your code side by side, right-click the output
+    and choose "Create New View for Cell Output", then drag that tab to the
+    right half of the screen. JupyterLab keeps it live while you work.
+
+    Returns the port actually used -- if the requested one is busy, the next
+    free port is taken instead.
+    """
+    from IPython.display import IFrame, display
+
+    from .web import serve_background
+
+    existing = _PANELS.get(port)
+    if existing is not None and existing[2] is dog:
+        display(IFrame(src=f"/proxy/{port}/", width="100%", height=inline_height))
+        return port
+    if existing is not None:
+        close_panel(port)
+
+    # The requested port can be held by a previous kernel whose socket has not
+    # been released yet, or by another notebook. Walk forward until one is
+    # free rather than failing with "Address already in use" -- the student
+    # did nothing wrong and has no way to act on that error.
+    last_error: OSError | None = None
+    for candidate in range(port, port + 20):
+        if candidate in _PANELS:
+            continue
+        try:
+            server, frames = serve_background(
+                dog, host="127.0.0.1", port=candidate,
+                width=width, height=height, fps=fps, camera=camera,
+            )
+        except OSError as exc:  # port busy; try the next one
+            last_error = exc
+            continue
+        _PANELS[candidate] = (server, frames, dog)
+        display(IFrame(src=f"/proxy/{candidate}/", width="100%", height=inline_height))
+        return candidate
+
+    raise RuntimeError(
+        f"Could not find a free port for the viewer between {port} and {port + 19}. "
+        f"Last error: {last_error}. Try close_panel() first, or restart the kernel."
+    )
+
+
+def close_panel(port: int = 8300) -> None:
+    """Stop the panel's server and rendering thread."""
+    entry = _PANELS.pop(port, None)
+    if entry is None:
+        return
+    server, frames, _dog = entry
+    frames.stop()
+    server.shutdown()
+    server.server_close()

@@ -37,7 +37,8 @@ WORKDIR /opt/go2
 COPY pyproject.toml README.md ./
 RUN pip install --no-cache-dir \
         "mujoco>=3.2,<5" "numpy>=1.24" "pillow>=10" \
-        jupyterlab notebook ipywidgets
+        jupyterlab notebook ipywidgets \
+        jupyter-server-proxy
 
 COPY go2 ./go2
 RUN pip install --no-cache-dir -e . \
@@ -54,6 +55,9 @@ EXPOSE 8888
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD curl -fsS "http://localhost:8888/lab" >/dev/null || exit 1
 
+# jupyter-server-proxy exposes any port the kernel is listening on at
+# /proxy/<port>/, same-origin and behind the same token. That is how the live
+# viewer appears inside the Lab tab rather than in a second browser window.
 CMD ["jupyter", "lab", \
      "--ip=0.0.0.0", "--port=8888", "--no-browser", \
      "--ServerApp.root_dir=/home/student/work", \
