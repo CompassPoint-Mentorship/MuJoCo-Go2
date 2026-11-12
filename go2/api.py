@@ -36,6 +36,10 @@ from .backends.base import Backend, Pose, Velocity
 # Shared teaching servers simply never set it.
 _ALLOW_REAL_ENV = "GO2_ALLOW_REAL"
 
+# When set, Go2(sim=True) connects to a simulator service instead of starting
+# one in this process. The hosted containers set it; a local install does not.
+_SIM_URL_ENV = "GO2_SIM_URL"
+
 _REAL_DISABLED = """Real-robot mode is disabled on this machine.
 
 Go2(sim=False) drives a physical robot. It is switched off here because this
@@ -69,6 +73,7 @@ class Go2:
         scene: str | pathlib.Path | None = None,
         realtime: bool = True,
         ip: str | None = None,
+        url: str | None = None,
     ) -> None:
         """
         Args:
@@ -78,20 +83,49 @@ class Go2:
             realtime: Run the simulation at wall-clock speed. Set False to let
                       it run as fast as the CPU allows (useful for tests).
             ip:       Robot address. Real robot only.
+            url:      Address of a simulator service to connect to instead of
+                      starting one here. Defaults to $GO2_SIM_URL. Simulator
+                      only; `viewer`, `scene` and `realtime` are then set by
+                      whoever started the service.
         """
         self.sim = bool(sim)
         if not self.sim and os.environ.get(_ALLOW_REAL_ENV, "") not in ("1", "true", "yes"):
             raise PermissionError(_REAL_DISABLED.format(env=_ALLOW_REAL_ENV))
         if self.sim:
-            from .backends.sim import SimBackend
+            # In hosted mode a long-lived service owns the dog and we are a
+            # client of it, so the viewer shows a live dog before any cell has
+            # run and a kernel restart does not destroy the world. Locally,
+            # GO2_SIM_URL is unset and the simulator runs in this process.
+            # `url=""` explicitly forces a local simulator, ignoring the
+            # environment -- the service process itself needs that.
+            service = url if url is not None else os.environ.get(_SIM_URL_ENV, "").strip()
+            if service:
+                from .backends.remote import RemoteBackend
 
-            self._backend: Backend = SimBackend(scene=scene, viewer=viewer, realtime=realtime)
+                self._backend: Backend = RemoteBackend(service)
+                self.remote = True
+            else:
+                from .backends.sim import SimBackend
+
+                self._backend = SimBackend(scene=scene, viewer=viewer, realtime=realtime)
+                self.remote = False
         else:
             from .backends.real import RealBackend
 
             self._backend = RealBackend(ip=ip)
 
     # ---------------------------------------------------------------- motion
+
+    def reset(self) -> "Go2":
+        """Put the dog back at the start: origin, stopped, standing.
+
+        Worth knowing in hosted mode: the dog lives in a service, not in your
+        notebook, so it keeps whatever position and command it had when your
+        last cell ended -- even across a kernel restart. Start an experiment
+        with reset() and it begins from a known state every time.
+        """
+        self._backend.reset()
+        return self
 
     def stand(self) -> "Go2":
         """Stand still on all four legs."""

@@ -64,6 +64,7 @@ _PAGE = """<!doctype html>
     <button data-cmd="stop=1">stop</button>
     <button data-cmd="sit=1">sit</button>
     <button data-cmd="stand=1">stand</button>
+    <button data-cmd="reset=1">reset</button>
   </div>
   <div id="keys">drive with <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>,
     <kbd>space</kbd> to stop &mdash; hold to move</div>
@@ -114,6 +115,65 @@ setInterval(async () => {
 """
 
 
+_SPLIT = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Go2 lab</title>
+<style>
+  html,body { margin:0; height:100%; background:#111; }
+  #split { display:flex; height:100%; }
+  iframe { border:0; height:100%; }
+  #left  { flex:1 1 auto; }
+  #grip  { flex:0 0 6px; cursor:col-resize; background:#333; }
+  #grip:hover { background:#555; }
+  #right { flex:0 0 __RIGHT__px; }
+</style>
+</head>
+<body>
+<div id="split">
+  <iframe id="left"  src="__LAB__"    title="JupyterLab"></iframe>
+  <div    id="grip"></div>
+  <iframe id="right" src="__VIEWER__" title="simulator"></iframe>
+</div>
+<script>
+// Drag the grip to resize. Both panes are same-origin (everything is served
+// through the Jupyter server), so no cross-origin framing is involved.
+const grip = document.getElementById('grip'), right = document.getElementById('right');
+let dragging = false;
+grip.addEventListener('mousedown', e => { dragging = true; e.preventDefault();
+  document.querySelectorAll('iframe').forEach(f => f.style.pointerEvents = 'none'); });
+addEventListener('mouseup', () => { dragging = false;
+  document.querySelectorAll('iframe').forEach(f => f.style.pointerEvents = 'auto'); });
+addEventListener('mousemove', e => {
+  if (!dragging) return;
+  const w = Math.min(Math.max(window.innerWidth - e.clientX, 280), window.innerWidth - 280);
+  right.style.flexBasis = w + 'px';
+});
+</script>
+</body>
+</html>
+"""
+
+
+def _split_page(query: str) -> str:
+    """Lab on the left, the live dog on the right, in one page.
+
+    Both iframes are same-origin: this page is itself served through
+    jupyter-server-proxy, so the Jupyter server is the origin for both and no
+    CSP relaxation is needed.
+    """
+    token = ""
+    for part in (query or "").split("&"):
+        if part.startswith("token="):
+            token = part[len("token="):]
+    lab = "/lab?token=" + token if token else "/lab"
+    viewer = "./" if not token else "./?token=" + token
+    return (_SPLIT.replace("__LAB__", lab)
+                  .replace("__VIEWER__", viewer)
+                  .replace("__RIGHT__", "620"))
+
+
 class _Frames:
     """Renders the scene in one thread; serves the latest JPEG to many."""
 
@@ -134,13 +194,16 @@ class _Frames:
         self._thread = threading.Thread(target=self._loop, daemon=True, name="go2-web-render")
         self._thread.start()
 
+    def encode(self, rgb) -> bytes:
+        buf = io.BytesIO()
+        self._Image.fromarray(rgb).save(buf, format="JPEG", quality=80)
+        return buf.getvalue()
+
     def _loop(self) -> None:
         while self.running:
             t0 = time.perf_counter()
             rgb = self.dog.camera(width=self.width, height=self.height, camera=self.camera)
-            buf = io.BytesIO()
-            self._Image.fromarray(rgb).save(buf, format="JPEG", quality=80)
-            self.latest = buf.getvalue()
+            self.latest = self.encode(rgb)
             delay = self.interval - (time.perf_counter() - t0)
             if delay > 0:
                 time.sleep(delay)
@@ -176,6 +239,17 @@ def _handler(dog: Go2, frames: _Frames):
             elif url.path == "/cmd":
                 self._command(parse_qs(url.query))
                 self._send(b"ok", "text/plain")
+            elif url.path == "/split":
+                self._send(_split_page(url.query).encode(), "text/html; charset=utf-8")
+            elif url.path == "/state":
+                p, v = dog.pose(), dog.velocity()
+                body = (
+                    f'{{"x":{p.x:.5f},"y":{p.y:.5f},"yaw":{p.yaw:.5f},'
+                    f'"vx":{v.vx:.5f},"vy":{v.vy:.5f},"wz":{v.wz:.5f}}}'
+                ).encode()
+                self._send(body, "application/json")
+            elif url.path == "/camera":
+                self._camera(parse_qs(url.query))
             elif url.path == "/frame":
                 jpeg = frames.latest
                 if jpeg is None:
@@ -189,7 +263,21 @@ def _handler(dog: Go2, frames: _Frames):
             else:
                 self._send(b"not found", "text/plain", 404)
 
+        def _camera(self, q: dict[str, list[str]]) -> None:
+            """A single JPEG from any camera -- how RemoteBackend reads pixels."""
+            def num(name: str, default: int) -> int:
+                try:
+                    return int(q.get(name, [str(default)])[0])
+                except ValueError:
+                    return default
+            name = q.get("camera", ["head"])[0]
+            rgb = dog.camera(width=num("width", 640), height=num("height", 480), camera=name)
+            self._send(frames.encode(rgb), "image/jpeg")
+
         def _command(self, q: dict[str, list[str]]) -> None:
+            if "reset" in q:
+                dog.reset()
+                return
             if "stop" in q:
                 dog.stop()
                 return

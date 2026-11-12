@@ -42,7 +42,22 @@ host_ips() {
 }
 
 # One link per address, labelled.
+#
+# The link points at /proxy/8399/split -- the split page served by the
+# simulator service through jupyter-server-proxy. It frames JupyterLab on the
+# left and the live dog on the right, both same-origin, so the student opens
+# ONE link and sees both straight away with nothing to arrange.
 links_for() {
+  # shellcheck disable=SC1090
+  ( . "$1"
+    host_ips | while IFS=$'\t' read -r ip kind; do
+      printf '  %-9s http://%s:%s/proxy/%s/split?token=%s\n' \
+        "($kind)" "$ip" "$LAB_PORT" "${GO2_SIM_PORT:-8399}" "$LAB_TOKEN"
+    done )
+}
+
+# Plain JupyterLab, without the split layout.
+lab_links_for() {
   # shellcheck disable=SC1090
   ( . "$1"
     host_ips | while IFS=$'\t' read -r ip kind; do
@@ -103,6 +118,9 @@ up)
   echo
   echo "Send $NAME whichever link matches their network:"
   links_for "$ENVF"
+  echo
+  echo "Plain JupyterLab, no split:"
+  lab_links_for "$ENVF"
   ;;
 
 down)
@@ -136,7 +154,7 @@ list)
       printf '%-14s %-6s %-26s %s\n' "$STUDENT" "$LAB_PORT" "${st:-stopped}" "$LAB_TOKEN" )
   done
   echo
-  echo "Links are http://<address>:<port>/lab?token=<token> on any of:"
+  echo "Links are http://<address>:<port>/proxy/8399/split?token=<token> on any of:"
   host_ips | while IFS=$'\t' read -r ip kind; do
     printf '  %s\t(%s)\n' "$ip" "$kind"
   done

@@ -50,6 +50,7 @@ class RealBackend(Backend):
 
     # The abstract methods below are never reached; they exist so this class is
     # instantiable-shaped and the interface stays honest.
+    def reset(self) -> None: raise NotImplementedError(_MESSAGE)
     def stand(self) -> None: raise NotImplementedError(_MESSAGE)
     def sit(self) -> None: raise NotImplementedError(_MESSAGE)
     def move(self, vx: float, vy: float, wz: float) -> None: raise NotImplementedError(_MESSAGE)

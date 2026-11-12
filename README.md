@@ -87,6 +87,7 @@ limit**. One viewer costs a few percent of a core on top of the simulator.
 
 | Call | Does |
 |---|---|
+| `dog.reset()` | Back to the start: origin, stopped, standing |
 | `dog.stand()` | Stand still on all four legs |
 | `dog.sit()` | Lower the body to the ground |
 | `dog.move(vx, vy, wz)` | Walk at a body-frame velocity until told otherwise |
@@ -170,9 +171,11 @@ go2/
   gait.py             stand-in trot animation (see "The walking problem")
   backends/
     base.py           the interface every backend implements
-    sim.py            MuJoCo backend
+    sim.py            MuJoCo backend, in this process
+    remote.py         client of a go2.service running elsewhere
     real.py           physical Go2 Pro — not implemented yet (step 2)
-  web.py              browser viewer: MJPEG stream + drive controls
+  web.py              browser viewer, split page, and the service's HTTP API
+  service.py          `python -m go2.service` -- a long-lived simulator
   notebook.py         panel()/show()/live()/drive() -- renders inline in Jupyter
   assets/
     arena.xml         our scene

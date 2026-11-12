@@ -41,6 +41,10 @@ class Backend(ABC):
     """One way of driving a Go2."""
 
     @abstractmethod
+    def reset(self) -> None:
+        """Put the dog back where it started, stopped and standing."""
+
+    @abstractmethod
     def stand(self) -> None: ...
 
     @abstractmethod

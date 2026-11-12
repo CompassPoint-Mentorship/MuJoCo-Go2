@@ -55,10 +55,12 @@ EXPOSE 8888
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD curl -fsS "http://localhost:8888/lab" >/dev/null || exit 1
 
-# jupyter-server-proxy exposes any port the kernel is listening on at
-# /proxy/<port>/, same-origin and behind the same token. That is how the live
-# viewer appears inside the Lab tab rather than in a second browser window.
-CMD ["jupyter", "lab", \
-     "--ip=0.0.0.0", "--port=8888", "--no-browser", \
-     "--ServerApp.root_dir=/home/student/work", \
-     "--ServerApp.token=", "--ServerApp.password="]
+# The simulator runs as its own service; notebooks are clients of it.
+# jupyter-server-proxy exposes it at /proxy/8399/, same-origin and behind the
+# same token, so the split page can frame both Lab and the viewer.
+ENV GO2_SIM_PORT=8399 \
+    GO2_SIM_URL=http://127.0.0.1:8399
+
+COPY --chown=student:student deploy/entrypoint.sh /usr/local/bin/entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

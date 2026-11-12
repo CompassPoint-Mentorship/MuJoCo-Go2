@@ -31,18 +31,42 @@ login, so treat the link as a password and send it to that student only.
 the container. It survives rebuilds, restarts and image changes, so you can
 update the image mid-course without losing anybody's code.
 
-## The viewer lives inside the Lab tab
+## One link, both panes
 
-`panel(dog)` in a notebook starts the MJPEG viewer inside the kernel and shows
-it through `jupyter-server-proxy` at `/proxy/<port>/`. Same browser tab, same
-origin, same token -- no second window and no extra port to expose.
+The student link points at `/proxy/8399/split`. That page frames JupyterLab on
+the left and the live dog on the right, so **opening the link is all they do** --
+nothing to arrange, no cell to run first.
 
-For a side-by-side layout, right-click the panel output and choose
-*Create New View for Cell Output*, then drag that tab to the right half of the
-window. Notebook on the left, live dog on the right.
+Both frames are same-origin: the split page is itself served through
+jupyter-server-proxy, so the Jupyter server is the origin for both and no CSP
+relaxation is needed. Drag the grey divider to resize.
 
-If the port is busy -- a previous kernel, or a second notebook -- `panel()`
-walks forward to the next free one rather than failing.
+`./go2-student.sh up <name>` also prints a plain `/lab` link for anyone who
+wants Lab on its own.
+
+## The dog lives in a service, not in the kernel
+
+`deploy/entrypoint.sh` starts `python -m go2.service` before JupyterLab, and
+the container sets `GO2_SIM_URL`, so `Go2(sim=True)` in a notebook connects to
+that service instead of building its own simulator. This is what makes the
+split layout work -- there is a live dog to show before anyone runs a cell.
+
+Consequences, all deliberate:
+
+- **Restarting the kernel does not destroy the dog.** It keeps its position
+  and whatever command it was last given.
+- **Several notebooks drive the same dog.** That is what lets the panel show
+  what your code is doing.
+- **`dog.reset()` matters.** Because state persists, experiments should start
+  from a known position. There is a reset button in the viewer too.
+- The dog keeps walking if a cell raises. `dog.stop()`, or the stop button.
+
+A local `pip install` sets no `GO2_SIM_URL`, so the simulator runs inside the
+process as before and none of this applies.
+
+If the simulator service dies, the entrypoint takes the container down rather
+than leaving a Lab whose dog has silently vanished; `restart: unless-stopped`
+then brings it back.
 
 ## Resources
 

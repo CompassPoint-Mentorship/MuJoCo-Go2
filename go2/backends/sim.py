@@ -255,6 +255,14 @@ class SimBackend(Backend):
 
     # ----------------------------------------------------------------- public
 
+    def reset(self) -> None:
+        with self._lock:
+            self._cmd = (0.0, 0.0, 0.0)
+            self._mode = "stand"
+            self._x = self._y = self._yaw = 0.0
+            self._clock = 0.0
+        self._reset_to_home()
+
     def stand(self) -> None:
         with self._lock:
             self._mode = "stand"

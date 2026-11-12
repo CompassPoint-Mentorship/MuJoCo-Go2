@@ -17,11 +17,9 @@ services:
       MUJOCO_GL: ${MUJOCO_GL:-egl}
       # Never 1 on a shared server. See deploy/README.md.
       GO2_ALLOW_REAL: "0"
-    command: >
-      jupyter lab --ip=0.0.0.0 --port=8888 --no-browser
-      --ServerApp.root_dir=/home/student/work
-      --ServerApp.token=${LAB_TOKEN}
-      --ServerApp.password=
+      # Notebooks connect to the service the entrypoint starts, rather than
+      # each creating their own dog inside the kernel.
+      GO2_SIM_URL: http://127.0.0.1:8399
     volumes:
       - ${STUDENT_WORK}:/home/student/work:rw
     deploy:
