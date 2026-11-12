@@ -464,6 +464,19 @@ def run_lab(args: argparse.Namespace) -> int:
         if lab is not None:
             _terminate(lab)
         sim.stop()
+
+    # Neither of the two things left on screen can be closed from here: a page
+    # may only close a window that script opened, and this one was opened by
+    # the operating system. So say what is safe to close, rather than leaving
+    # a dead window and a tab full of reconnection errors to be puzzled over.
+    print()
+    print("  Go2 Lab stopped. Your notebooks are saved in")
+    print(f"  {work}")
+    if platform.system() == "Darwin":
+        print("  You can close this window (Command-W) and the browser tab.")
+    else:
+        print("  You can close this window and the browser tab.")
+    print()
     return 0
 
 

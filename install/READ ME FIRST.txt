@@ -63,8 +63,16 @@ browser opens with the notebook on the left and the dog on the right.
     notebook open, and saving from both is a muddle. Close the spare.
 
   * Done for the day? Close the Go2 Lab window, or press Ctrl-C in it.
-    Either one stops the simulator. Your notebooks are already saved in
-    Documents.
+    Either one stops the simulator. Your notebooks are already saved.
+
+    The browser tab stays open and says the lab has stopped; close it
+    yourself. No page is allowed to close a tab it did not open, so
+    nothing can do that for you.
+
+    If you pressed Ctrl-C, the window stays too, saying "[Process
+    completed]". Command-W closes it. To have Terminal close its own
+    windows: Terminal > Settings > Profiles > Shell > "When the shell
+    exits: Close if the shell exited cleanly".
 
 
 What gets installed
