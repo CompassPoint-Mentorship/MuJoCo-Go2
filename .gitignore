@@ -25,3 +25,6 @@ deploy/tls/
 install/Go2-Lab-macOS.zip
 # Written by the installer on the machine it installs to.
 go2/_build.py
+
+# Local secrets: the GitHub token used to file issues. Never commit.
+.env

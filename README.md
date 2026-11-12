@@ -350,6 +350,7 @@ go2/
                       student's folder, hosted or local, and the only copy
 install/              laptop installer (mac.sh), the download zip, Gatekeeper note
 deploy/               hosted mode: Dockerfile, compose, go2-student.sh
+docs/                 DESIGN.md (why it is built this way), STEP2-REAL-ROBOT.md
 tests/                pytest suite, headless
 ```
 
@@ -358,6 +359,11 @@ used by `camera()`; it is marked in `go2/assets/go2.xml`. Upstream copies are
 kept as `LICENSE` and `UPSTREAM_README.md` for diffing on upgrade.
 
 ## Status
+
+The reasoning behind all of this is in [docs/DESIGN.md](docs/DESIGN.md); the
+plan for the next step is in
+[docs/STEP2-REAL-ROBOT.md](docs/STEP2-REAL-ROBOT.md). Work in progress is
+tracked as issues.
 
 - [x] **Step 1** — `Go2` API, MuJoCo backend, stand-in walking, arena, examples, tests
 - [ ] **Step 2** — real Go2 Pro backend over WebRTC
@@ -384,7 +390,8 @@ Our dog is a **Go2 Pro**, which matters:
   disconnected first. With one dog and many students, robot time is a booked
   slot, not shared infrastructure.
 
-See `go2/backends/real.py` for the full plan and gotchas.
+See [docs/STEP2-REAL-ROBOT.md](docs/STEP2-REAL-ROBOT.md) for the plan, and
+`go2/backends/real.py` for the seam it fills in.
 
 **Real-robot mode is off unless `GO2_ALLOW_REAL=1`.** `Go2(sim=False)` raises
 `PermissionError` without it, and the hosted containers hard-set it to `0`. A
