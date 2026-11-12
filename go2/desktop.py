@@ -331,10 +331,9 @@ def run_lab(args: argparse.Namespace) -> int:
     # imports whatever `go2` happens to sit in the folder the lab was started
     # from -- so a mentor launching from a clone ran the clone in the viewer
     # and the installed copy in the launcher, which is the worst of both and
-    # reports the wrong build. The flag arrived in 3.11; we still run on 3.10.
-    isolate = ["-P"] if sys.version_info >= (3, 11) else []
+    # reports the wrong build.
     sim_cmd = [
-        sys.executable, *isolate, "-m", "go2.service",
+        sys.executable, "-P", "-m", "go2.service",
         "--host", "127.0.0.1", "--port", str(sim_port),
         "--width", str(args.width), "--height", str(args.height),
         "--fps", str(args.fps),

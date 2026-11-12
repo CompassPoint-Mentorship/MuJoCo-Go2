@@ -357,10 +357,9 @@ def test_the_service_does_not_import_from_the_current_directory():
 
     src = inspect.getsource(desktop.run_lab)
     assert '"-P"' in src
-    if sys.version_info >= (3, 11):
-        out = subprocess.run(
-            [sys.executable, "-P", "-c", "import sys; print(sys.path[0])"],
-            capture_output=True, text=True, cwd="/tmp",
-        )
-        assert out.returncode == 0, out.stderr
-        assert out.stdout.strip() != "/tmp"
+    out = subprocess.run(
+        [sys.executable, "-P", "-c", "import sys; print(sys.path[0])"],
+        capture_output=True, text=True, cwd="/tmp",
+    )
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() != "/tmp"

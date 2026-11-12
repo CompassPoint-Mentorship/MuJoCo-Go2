@@ -93,15 +93,14 @@ def units_dir(pack: pathlib.Path) -> pathlib.Path:
 def manifest(pack: pathlib.Path) -> dict:
     """Read course.toml. A pack without one still works; it is just anonymous.
 
-    tomllib arrived in 3.11 and the manifest is metadata, not machinery, so
-    an older Python loses the title and keeps the lesson.
+    A broken or unreadable manifest is survivable -- the units are files on
+    disk and sync() hands them over regardless -- so this reports and carries
+    on rather than stopping a class over metadata.
     """
+    import tomllib
+
     path = pack / MANIFEST
     if not path.is_file():
-        return {}
-    try:
-        import tomllib
-    except ImportError:  # pragma: no cover - python 3.10
         return {}
     try:
         with path.open("rb") as fh:

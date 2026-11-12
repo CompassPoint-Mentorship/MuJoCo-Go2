@@ -39,6 +39,10 @@ curl -fsSL https://raw.githubusercontent.com/CompassPoint-Mentorship/MuJoCo-Go2/
 ```
 
 **From source** — for mentors and anyone changing the simulator itself.
+Needs **Python 3.11 or newer**; a student never hits this, because the
+installer downloads its own 3.12. If your system `python3` is older — Ubuntu
+22.04 still ships 3.10 — use `uv venv --python 3.12 .venv` instead of the
+line below.
 
 ```bash
 git clone https://github.com/CompassPoint-Mentorship/MuJoCo-Go2.git

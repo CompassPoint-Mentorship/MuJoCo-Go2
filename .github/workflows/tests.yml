@@ -27,9 +27,8 @@ jobs:
           # our arena still work there. It was verified by hand once, on the
           # day the Intel pin was fixed; this keeps it true.
           - {python: "3.12", mujoco: "mujoco==3.10.0", label: "intel-mac pin"}
-          # Our oldest supported Python (pyproject: requires-python >=3.10).
-          # MuJoCo 4.x needs >=3.11, so this leg also exercises the 3.x path.
-          - {python: "3.10", mujoco: "", label: "oldest python"}
+          # Our oldest supported Python (pyproject: requires-python >=3.11).
+          - {python: "3.11", mujoco: "", label: "oldest python"}
     name: pytest (${{ matrix.label }})
     steps:
       - uses: actions/checkout@v4
