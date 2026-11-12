@@ -212,6 +212,15 @@ _SPLIT = r"""<!doctype html>
   #grip  { flex:0 0 6px; cursor:col-resize; background:#333; }
   #grip:hover { background:#555; }
   #right { flex:0 0 __RIGHT__px; }
+  /* Sits above both iframes, and so above JupyterLab's own modal: a dialog
+     offering to reconnect to a server that has been deliberately shut down
+     is worse than useless, and it blocks the page while it says it. */
+  #gone { position:fixed; inset:0; display:none; place-items:center;
+          background:rgba(17,17,17,.94); color:#eee; z-index:9999;
+          font:16px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace; }
+  #gone div { max-width:30rem; padding:0 1.5rem; text-align:center; }
+  #gone b { display:block; font-size:19px; margin-bottom:.75rem; }
+  #gone span { opacity:.7; }
 </style>
 </head>
 <body>
@@ -220,6 +229,12 @@ _SPLIT = r"""<!doctype html>
   <div    id="grip"></div>
   <iframe id="right" title="simulator"></iframe>
 </div>
+<div id="gone" role="status"><div>
+  <b>The Go2 Lab has stopped.</b>
+  Your notebooks are saved. You can close this tab.
+  <span><br><br>Start the lab again and open the new link it prints:
+  the address changes every time.</span>
+</div></div>
 <script>
 // Work out where Jupyter lives from OUR OWN path rather than assuming "/lab".
 // This page is served at <base>/proxy/<port>/split, and <base> is "/" only
@@ -233,6 +248,31 @@ const q = token ? '?token=' + encodeURIComponent(token) : '';
 document.getElementById('left').src  = base + 'lab' + q;
 document.getElementById('right').src = './' + q;
 </script>
+<script>
+// Say when the lab is gone, instead of leaving JupyterLab to offer a
+// reconnection that cannot happen.
+//
+// The test is Jupyter's own status endpoint, which is what the launcher
+// waits for at startup. A request that fails at the NETWORK level means
+// Jupyter is gone, which is what "the lab has stopped" means. A failing
+// status code means Jupyter is up and something behind the proxy is not --
+// the supervisor is probably already fixing that, so it is not worth
+// throwing a full-page notice at anybody.
+const gone = document.getElementById('gone');
+let misses = 0;
+setInterval(async () => {
+  try {
+    await fetch(base + 'api/status' + q, { cache: 'no-store' });
+    misses = 0;
+    gone.style.display = 'none';
+  } catch (_) {
+    // Three in a row: a laptop waking up or a slow moment should not throw
+    // a full-page notice at a student who is still working.
+    if (++misses >= 3) gone.style.display = 'grid';
+  }
+}, 2000);
+</script>
+
 <script>
 // Drag the grip to resize. Both panes are same-origin (everything is served
 // through the Jupyter server), so no cross-origin framing is involved.

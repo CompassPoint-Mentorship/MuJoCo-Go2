@@ -90,6 +90,8 @@ say "Go2 simulator installer  ($OS $ARCH, into $PREFIX)"
 #
 # Note this runs BEFORE the 250 MB download, so stopping here costs nothing.
 running_lab() { pgrep -f "$VENV/bin" 2>/dev/null || true; }
+# The launcher itself, as opposed to the JupyterLab and simulator it started.
+lab_leader() { pgrep -f "$VENV/bin/go2-lab" 2>/dev/null || true; }
 
 PIDS="$(running_lab)"
 if [ -n "$PIDS" ]; then
@@ -105,18 +107,40 @@ if [ -n "$PIDS" ]; then
   fi
   case "$ANS" in
     y|Y|yes|YES|1)
-      # SIGTERM is the clean path: go2-lab turns it into the same shutdown
-      # Ctrl-C does, so JupyterLab and the simulator go down with it and no
-      # notebook is left half-saved.
-      echo "$PIDS" | xargs kill 2>/dev/null || true
-      for _ in 1 2 3 4 5 6 7 8 9 10; do
-        [ -z "$(running_lab)" ] && break
+      # Signal the LAUNCHER, and only the launcher. It turns SIGTERM into the
+      # same shutdown Ctrl-C does and takes its children with it. Killing the
+      # whole set at once instead makes the simulator die first, and the
+      # supervisor -- whose job is to survive exactly that -- restarts it
+      # before the launcher has processed its own signal.
+      LEADER="$(lab_leader)"
+      if [ -n "$LEADER" ]; then
+        echo "$LEADER" | xargs kill 2>/dev/null || true
+      else
+        echo "$PIDS" | xargs kill 2>/dev/null || true
+      fi
+
+      # Gone means gone twice over: a restart in flight can leave a gap where
+      # nothing matches for an instant. Waiting for two consecutive clear
+      # polls costs a second and is the difference between installing over a
+      # stopped lab and installing over a reviving one.
+      CLEAR=0
+      for _ in $(seq 1 30); do
+        if [ -z "$(running_lab)" ]; then
+          CLEAR=$((CLEAR + 1))
+          [ "$CLEAR" -ge 2 ] && break
+        else
+          CLEAR=0
+        fi
         sleep 1
       done
+
       LEFT="$(running_lab)"
       if [ -n "$LEFT" ]; then
+        warn "Something is still running; stopping it the hard way."
         echo "$LEFT" | xargs kill -9 2>/dev/null || true
-        sleep 1
+        sleep 2
+        [ -z "$(running_lab)" ] || die "Could not stop the lab (pid $(running_lab | tr '\n' ' ')).
+Close the Go2 Lab window yourself, then run this again."
       fi
       say "Stopped the running lab. Carrying on."
       ;;

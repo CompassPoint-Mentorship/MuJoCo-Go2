@@ -63,6 +63,13 @@ Both frames are same-origin: the split page is itself served through
 jupyter-server-proxy, so the Jupyter server is the origin for both and no CSP
 relaxation is needed. Drag the grey divider to resize.
 
+When the lab stops, the page says so and covers both frames. Without that,
+JupyterLab puts up its own modal offering to reconnect to a server that has
+been deliberately shut down — a dialog that blocks the page while telling the
+student something untrue. The page polls Jupyter's `/api/status`; only a
+network-level failure counts, so a simulator the supervisor is restarting does
+not trigger it.
+
 `./go2-student.sh up <name>` also prints a plain `/lab` link for anyone who
 wants Lab on its own.
 
