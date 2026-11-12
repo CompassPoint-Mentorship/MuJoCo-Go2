@@ -36,6 +36,9 @@ curl -fsSL https://raw.githubusercontent.com/CompassPoint-Mentorship/MuJoCo-Go2/
 
 Using it
 --------
+When the install finishes it asks "Start the Go2 Lab now?" -- press
+Return and it opens straight away. Next time, start it yourself:
+
   1. Press Cmd-Space.
   2. Type:  Go2 Lab
   3. Press Return.

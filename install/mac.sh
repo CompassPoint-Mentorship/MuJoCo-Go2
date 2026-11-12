@@ -32,6 +32,23 @@ say()  { printf '\033[1m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[33m!!\033[0m  %s\n' "$*" >&2; }
 die()  { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 
+# Ask the person a question and echo their answer.
+#
+# This script is itself on stdin (curl | bash), so the answer has to come from
+# the terminal directly or `read` would eat the rest of the script. Opening
+# /dev/tty is the only honest test of whether anyone is there: it can exist,
+# and be readable by its permission bits, and still fail to open when there is
+# no controlling terminal. Callers wrap this in 2>/dev/null and treat failure
+# as "nobody is there", which is why it must never print the prompt to stdout.
+ask_tty() {
+  local prompt="$1" ans
+  exec 3<>/dev/tty || return 1
+  printf '%s' "$prompt" >&3
+  read -r ans <&3 || ans=""
+  exec 3>&-
+  printf '%s' "$ans"
+}
+
 OS="$(uname -s)"
 case "$OS" in
   Darwin) ;;
@@ -82,21 +99,8 @@ if [ -n "$PIDS" ]; then
   echo "    broken, because the running copy stays in memory."
   echo
   ANS="${GO2_STOP_RUNNING:-}"
-  # This script is itself on stdin (curl | bash), so the answer has to come
-  # from the terminal directly or `read` would eat the rest of the script.
-  # Opening it is the only honest test -- /dev/tty can exist and still fail
-  # to open with no controlling terminal -- and the call is wrapped so that
-  # failure is silent rather than an alarming line about a missing device.
-  ask_tty() {
-    local ans
-    exec 3<>/dev/tty || return 1
-    printf '    Stop it and carry on? [y/N] ' >&3
-    read -r ans <&3 || ans=""
-    exec 3>&-
-    printf '%s' "$ans"
-  }
   if [ -z "$ANS" ]; then
-    ANS="$(ask_tty 2>/dev/null || true)"
+    ANS="$(ask_tty '    Stop it and carry on? [y/N] ' 2>/dev/null || true)"
     echo
   fi
   case "$ANS" in
@@ -272,8 +276,37 @@ fi
 
 # ------------------------------------------------------------------- verify
 say "Checking that it actually works"
+CHECK_OK=1
 if ! "$VENV/bin/go2-lab" --check; then
+  CHECK_OK=0
   warn "The self-test above found a problem. The install is in place; send that output to your mentor."
+fi
+
+# ------------------------------------------------------------- start it now
+# Finish by opening the lab. "Now go and find an app you have never seen" is
+# exactly the step a student loses, and this is also what makes an upgrade
+# seamless: if we stopped a running lab above, this puts it back.
+#
+# Only when the self-test passed -- opening a broken lab teaches nothing and
+# buries the error above it -- and only when there is a terminal to ask, so a
+# scripted or class-wide install never has windows appear on someone's screen.
+START_NOW=""
+if [ "$OS" = "Darwin" ] && [ "$CHECK_OK" = "1" ] && [ -z "${GO2_NO_LAUNCH:-}" ]; then
+  case "${GO2_START_NOW:-}" in
+    y|Y|yes|YES|1) START_NOW=1 ;;
+    *)
+      # The exit status, not the answer, is what says whether anyone was
+      # there: an empty answer means Return (yes), a failure means no
+      # terminal, and those must not take the same branch.
+      if ANSWER="$(ask_tty 'Start the Go2 Lab now? [Y/n] ' 2>/dev/null)"; then
+        case "$ANSWER" in
+          n|N|no|NO) ;;
+          *) START_NOW=1 ;;
+        esac
+        echo
+      fi
+      ;;
+  esac
 fi
 
 echo
@@ -323,3 +356,10 @@ cat <<DONE2
 
   To update later, run this installer again.
 DONE2
+
+# The instructions above stay on screen in this window; the lab opens in its
+# own. Last, so that a student who says no still has the whole message.
+if [ -n "$START_NOW" ]; then
+  say "Opening the Go2 Lab in a new window ..."
+  open -a Terminal "$LAUNCH"
+fi
