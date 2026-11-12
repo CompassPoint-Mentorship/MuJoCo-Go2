@@ -17,10 +17,32 @@ cd deploy
 ./go2-student.sh link   alice     # the link to send them
 ./go2-student.sh list             # everyone's port, status, link, GPU use
 ./go2-student.sh down   alice     # stop
+./go2-student.sh sync   --all     # hand out fixed/new coursework
 ```
 
 `create` copies the starter notebooks into the student's work directory. Ports
 are allocated from **8400**, one per student, in creation order.
+
+### Handing out updated coursework
+
+`create` seeds once, so a notebook fixed after the class started never reaches
+anyone. `sync <name>` or `sync --all` catches them up, and `-n` shows what it
+would do without writing anything.
+
+It keeps a copy of what it last handed over in `student-work/<name>/.go2-seed`
+(hidden from JupyterLab's file browser). That copy is what makes updating safe:
+comparing it with the student's file says whether they have *touched* it.
+
+| Their file | What happens |
+|---|---|
+| missing | copied in |
+| identical to the seed — never edited | replaced |
+| edited, or from before the seed existed | **left alone**; the new version lands beside it as `<name>.updated.ipynb` |
+
+The `.updated` copy gets the same protection on the next sync: once a student
+has edited it, it is theirs too and is never overwritten. Nothing restarts —
+the work dir is a bind mount — but a notebook already open in a tab keeps the
+old copy until it is closed and reopened.
 
 The link is `http://<host>:<port>/lab?token=<token>` — the token *is* the
 login, so treat the link as a password and send it to that student only.
