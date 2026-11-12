@@ -139,6 +139,16 @@ class Go2:
         data, guessed = _read_audio(audio)
         return self._backend.say(data, content_type or guessed)
 
+    def say_again(self) -> str | None:
+        """Say the most recent clip again. Returns its id, or None if silent.
+
+            dog.say_again()     # whatever you last recorded or sent
+
+        Useful after recording in the panel: the clip lives in the service,
+        so the notebook can replay it without having the bytes.
+        """
+        return self._backend.say_again()
+
     def reset(self) -> "Go2":
         """Put the dog back at the start: origin, stopped, standing.
 

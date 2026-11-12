@@ -57,6 +57,21 @@ class AudioStore:
             self._playing = clip_id
             self._seq += 1
 
+    def replay(self) -> str | None:
+        """Say the most recent clip again. Returns its id, or None if empty.
+
+        Bumping seq is the whole mechanism: the viewer polls it and plays
+        whatever `clip` names when it changes, so the same clip replays as
+        readily as a new one.
+        """
+        with self._lock:
+            clip = self._playing or (self._order[-1] if self._order else None)
+            if clip is None:
+                return None
+            self._playing = clip
+            self._seq += 1
+            return clip
+
     def state(self) -> dict:
         with self._lock:
             return {"clip": self._playing, "seq": self._seq,

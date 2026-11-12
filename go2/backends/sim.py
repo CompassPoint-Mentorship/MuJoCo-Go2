@@ -271,6 +271,9 @@ class SimBackend(Backend):
 
     # ----------------------------------------------------------------- public
 
+    def say_again(self) -> str | None:
+        return self.audio.replay()
+
     def say(self, data: bytes, content_type: str = "audio/webm") -> str:
         clip_id = self.audio.add(data, content_type)
         self.audio.play(clip_id)

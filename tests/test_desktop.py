@@ -8,6 +8,7 @@ stare at a spinner for a minute.
 
 from __future__ import annotations
 
+import json
 import socket
 import subprocess
 import sys
@@ -192,6 +193,45 @@ def test_watchers_endpoint_tracks_frame_fetches():
             assert exc.code == 503
         age = json.loads(urllib.request.urlopen(f"{url}/watchers", timeout=5).read())["age"]
         assert age is not None and age < 2.0
+    finally:
+        server.shutdown()
+        server.server_close()
+        dog.close()
+
+
+def test_coursework_hardcodes_no_simulator_port():
+    """go2-lab picks a free port, so a hardcoded one only works on the server.
+
+    This is exactly how it failed on a laptop: ConnectionRefusedError from a
+    notebook cell, in a lesson about audio, which tells the student nothing.
+    """
+    for path in desktop.COURSEWORK.iterdir():
+        if path.suffix in (".py", ".ipynb"):
+            assert "127.0.0.1:8399" not in path.read_text(), f"{path.name} pins a port"
+
+
+def test_say_again_replays_through_the_service():
+    """What the notebook's audio cell does, over HTTP, as a student runs it."""
+    import urllib.request
+
+    from go2.api import Go2
+    from go2.web import serve_background
+
+    dog = Go2(sim=True, viewer=False)
+    server, _frames = serve_background(dog, host="127.0.0.1", port=0, fps=5)
+    port = server.server_address[1]
+    try:
+        remote = Go2(sim=True, url=f"http://127.0.0.1:{port}")
+        assert remote.say_again() is None            # nothing recorded yet
+        clip = remote.say(b"RIFFfake", content_type="audio/wav")
+        before = json.loads(urllib.request.urlopen(
+            f"http://127.0.0.1:{port}/audio/state", timeout=5).read())
+        assert remote.say_again() == clip
+        after = json.loads(urllib.request.urlopen(
+            f"http://127.0.0.1:{port}/audio/state", timeout=5).read())
+        # seq is what the viewer watches; without a bump nothing plays.
+        assert after["seq"] > before["seq"]
+        assert after["count"] == 1, "replay must not store a second copy"
     finally:
         server.shutdown()
         server.server_close()

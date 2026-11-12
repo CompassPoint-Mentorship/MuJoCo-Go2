@@ -69,6 +69,7 @@ _PAGE = """<!doctype html>
   </div>
   <div class="row">
     <button id="rec">● record your voice</button>
+    <button id="play" disabled>▶ play it again</button>
     <span id="recstate"></span>
   </div>
   <audio id="speaker" hidden></audio>
@@ -100,7 +101,7 @@ document.addEventListener('visibilitychange', () => {
 nextFrame();
 
 const send = q => fetch('cmd?' + q);
-document.querySelectorAll('button').forEach(b =>
+document.querySelectorAll('button[data-cmd]').forEach(b =>
   b.onclick = () => send(b.dataset.cmd));
 
 const held = new Set();
@@ -158,12 +159,28 @@ recBtn.onclick = async () => {
 // seq bumps every time something says(), including from Python, so the dog
 // speaks whether the clip was recorded here or sent from a notebook.
 const speaker = document.getElementById('speaker');
-let lastSeq = -1;
+const playBtn = document.getElementById('play');
+let lastSeq = -1, lastClip = null;
+
+// Browsers refuse to play audio on a page nobody has clicked yet, so a clip
+// sent from a notebook can arrive before the student has touched this panel
+// and be silently dropped. Say that out loud, and leave a button to press:
+// the click is itself the gesture the browser was waiting for.
+function play(clip) {
+  speaker.src = 'audio/' + clip;
+  speaker.play().then(() => { recState.textContent = 'playing'; })
+                .catch(() => { recState.textContent = 'click ▶ play it again to hear it'; });
+}
+
+playBtn.onclick = () => { if (lastClip) play(lastClip); };
+
 setInterval(async () => {
   try {
     const a = await (await fetch('audio/state')).json();
+    if (a.clip && a.clip !== lastClip) { lastClip = a.clip; playBtn.disabled = false; }
     if (a.clip && a.seq !== lastSeq) {
-      if (lastSeq !== -1) { speaker.src = 'audio/' + a.clip; speaker.play().catch(() => {}); }
+      // Not on the first poll: a page reload should not replay an old clip.
+      if (lastSeq !== -1) play(a.clip);
       lastSeq = a.seq;
     }
   } catch (_) {}

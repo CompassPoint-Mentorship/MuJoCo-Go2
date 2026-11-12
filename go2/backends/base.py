@@ -40,6 +40,14 @@ class Velocity:
 class Backend(ABC):
     """One way of driving a Go2."""
 
+    def say_again(self) -> str | None:
+        """Play the most recent clip again. Returns its id, or None.
+
+        Not abstract: a backend that cannot replay should say so by
+        returning None rather than forcing every backend to implement it.
+        """
+        return None
+
     @abstractmethod
     def say(self, data: bytes, content_type: str = "audio/webm") -> str:
         """Play an audio clip from the dog. Returns the clip id.
