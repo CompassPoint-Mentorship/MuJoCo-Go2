@@ -132,10 +132,23 @@ _SPLIT = """<!doctype html>
 </head>
 <body>
 <div id="split">
-  <iframe id="left"  src="__LAB__"    title="JupyterLab"></iframe>
+  <iframe id="left"  title="JupyterLab"></iframe>
   <div    id="grip"></div>
-  <iframe id="right" src="__VIEWER__" title="simulator"></iframe>
+  <iframe id="right" title="simulator"></iframe>
 </div>
+<script>
+// Work out where Jupyter lives from OUR OWN path rather than assuming "/lab".
+// This page is served at <base>/proxy/<port>/split, and <base> is "/" only
+// when Jupyter is at the domain root. Behind a reverse proxy that mounts each
+// student under a path (ServerApp.base_url=/alice/), hardcoding "/lab" would
+// escape the prefix and 404.
+const here = location.pathname;
+const base = here.replace(/proxy\/\d+\/split\/?$/, '');
+const token = new URLSearchParams(location.search).get('token') || '';
+const q = token ? '?token=' + encodeURIComponent(token) : '';
+document.getElementById('left').src  = base + 'lab' + q;
+document.getElementById('right').src = './' + q;
+</script>
 <script>
 // Drag the grip to resize. Both panes are same-origin (everything is served
 // through the Jupyter server), so no cross-origin framing is involved.
@@ -162,16 +175,11 @@ def _split_page(query: str) -> str:
     Both iframes are same-origin: this page is itself served through
     jupyter-server-proxy, so the Jupyter server is the origin for both and no
     CSP relaxation is needed.
+
+    The frame URLs are worked out in the browser from this page's own path, so
+    the layout survives being mounted under a prefix by a reverse proxy.
     """
-    token = ""
-    for part in (query or "").split("&"):
-        if part.startswith("token="):
-            token = part[len("token="):]
-    lab = "/lab?token=" + token if token else "/lab"
-    viewer = "./" if not token else "./?token=" + token
-    return (_SPLIT.replace("__LAB__", lab)
-                  .replace("__VIEWER__", viewer)
-                  .replace("__RIGHT__", "620"))
+    return _SPLIT.replace("__RIGHT__", "620")
 
 
 class _Frames:
