@@ -13,12 +13,26 @@ SIM_PORT="${GO2_SIM_PORT:-8399}"
 # did nothing wrong -- so supervise it and bring it straight back. The dog
 # restarts at the origin, which is recoverable; a dead service is not.
 supervise_simulator() {
-  local attempt=0
+  local attempt=0 rc started delay
   while true; do
-    python -m go2.service --host 127.0.0.1 --port "$SIM_PORT"
+    started=$SECONDS
+    # "|| rc=$?" is load bearing. Without it, `set -e` at the top of this
+    # script terminates this whole loop the moment the service exits non-zero
+    # -- which is every abnormal exit, including being killed -- so the
+    # supervisor would silently die exactly when it is needed.
+    rc=0
+    python -m go2.service --host 127.0.0.1 --port "$SIM_PORT" || rc=$?
     attempt=$((attempt + 1))
-    echo "simulator service exited (restart #$attempt); restarting in 2s" >&2
-    sleep 2
+    # Back off if it is failing immediately (bad port, broken install), so a
+    # crash loop does not spin at 2s forever. A service that ran a while and
+    # then died is a one-off; bring it straight back.
+    if [ $((SECONDS - started)) -lt 5 ]; then
+      delay=$(( attempt < 5 ? attempt * 5 : 30 ))
+    else
+      delay=2
+    fi
+    echo "simulator service exited (rc=$rc, restart #$attempt); restarting in ${delay}s" >&2
+    sleep "$delay"
   done
 }
 

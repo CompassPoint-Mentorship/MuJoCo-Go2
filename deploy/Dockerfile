@@ -54,9 +54,13 @@ EXPOSE 8888
 
 # -k because the certificate is self-signed; this probe is inside the
 # container, so there is nothing to authenticate against anyway.
+# Both halves must answer. Probing only Lab once let a container sit "healthy"
+# for 13 hours with a dead simulator: students saw a 500 on the split page
+# while docker insisted all was well.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=3 \
-    CMD curl -fsSk "https://localhost:8888/lab" >/dev/null \
-     || curl -fsS "http://localhost:8888/lab" >/dev/null || exit 1
+    CMD { curl -fsSk "https://localhost:8888/lab" >/dev/null \
+       || curl -fsS "http://localhost:8888/lab" >/dev/null; } \
+     && curl -fsS "http://127.0.0.1:${GO2_SIM_PORT:-8399}/state" >/dev/null || exit 1
 
 # The simulator runs as its own service; notebooks are clients of it.
 # jupyter-server-proxy exposes it at /proxy/8399/, same-origin and behind the
