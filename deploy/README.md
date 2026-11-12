@@ -64,9 +64,24 @@ Consequences, all deliberate:
 A local `pip install` sets no `GO2_SIM_URL`, so the simulator runs inside the
 process as before and none of this applies.
 
-If the simulator service dies, the entrypoint takes the container down rather
-than leaving a Lab whose dog has silently vanished; `restart: unless-stopped`
-then brings it back.
+The entrypoint supervises the service and restarts it if it ever exits. A
+dead panel plus a notebook full of `ConnectionRefusedError` is a terrible
+experience for a student who did nothing wrong; the dog coming back at the
+origin is recoverable. Restarts are logged as `simulator service exited
+(restart #N)`, so check the container log if a dog mysteriously teleports
+home.
+
+### A note on MuJoCo and threads
+
+`MjData` is plain memory with no internal locking. Stepping it on the sim
+thread while another thread calls `mj_forward` (reset) or `mjv_updateScene`
+(render) is a data race, and it **segfaults the process** rather than raising.
+Everything that touches `MjData` therefore goes through one re-entrant lock,
+and `reset()` is applied by the sim thread rather than the caller's.
+
+This is not theoretical: it killed the service in testing, leaving the panel
+showing a stale frame while every notebook raised `ConnectionRefusedError`.
+`test_reset_and_render_under_concurrent_load` guards it.
 
 ## Resources
 

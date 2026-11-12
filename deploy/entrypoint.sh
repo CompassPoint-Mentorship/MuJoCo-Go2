@@ -8,12 +8,24 @@ set -euo pipefail
 
 SIM_PORT="${GO2_SIM_PORT:-8399}"
 
-python -m go2.service --host 127.0.0.1 --port "$SIM_PORT" &
-SIM_PID=$!
+# Keep the simulator running. If it ever dies, a dead panel and a notebook
+# full of ConnectionRefusedError is a terrible experience for a student who
+# did nothing wrong -- so supervise it and bring it straight back. The dog
+# restarts at the origin, which is recoverable; a dead service is not.
+supervise_simulator() {
+  local attempt=0
+  while true; do
+    python -m go2.service --host 127.0.0.1 --port "$SIM_PORT"
+    attempt=$((attempt + 1))
+    echo "simulator service exited (restart #$attempt); restarting in 2s" >&2
+    sleep 2
+  done
+}
 
-# If the simulator dies, take the container down rather than leaving a Lab
-# whose dog has silently vanished.
-trap 'kill "$SIM_PID" 2>/dev/null || true' EXIT TERM INT
+supervise_simulator &
+SUPERVISOR_PID=$!
+
+trap 'kill "$SUPERVISOR_PID" 2>/dev/null || true' EXIT TERM INT
 
 for _ in $(seq 1 60); do
   if python -c "
@@ -26,8 +38,8 @@ except Exception:
     echo "simulator service ready on 127.0.0.1:${SIM_PORT}"
     break
   fi
-  if ! kill -0 "$SIM_PID" 2>/dev/null; then
-    echo "simulator service failed to start" >&2
+  if ! kill -0 "$SUPERVISOR_PID" 2>/dev/null; then
+    echo "simulator supervisor died before the service came up" >&2
     exit 1
   fi
   sleep 1

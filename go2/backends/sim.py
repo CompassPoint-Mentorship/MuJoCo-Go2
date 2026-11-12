@@ -80,8 +80,14 @@ class SimBackend(Backend):
         self._joint_qpos0 = 7  # qpos[0:3] xyz, qpos[3:7] quaternion, then 12 joints
         self._obstacle_geoms = self._find_obstacle_geoms()
 
-        # Commanded state, guarded by _lock.
-        self._lock = threading.Lock()
+        # ONE lock guards every access to MjModel/MjData, not just the
+        # commanded state. MuJoCo's data is plain memory with no internal
+        # locking: stepping it on the sim thread while another thread calls
+        # mj_forward (reset) or mjv_updateScene (render) is a data race, and
+        # it segfaults the whole process rather than raising. Re-entrant
+        # because the tick path legitimately re-acquires it.
+        self._lock = threading.RLock()
+        self._reset_requested = False
         self._cmd = (0.0, 0.0, 0.0)
         self._mode = "stand"
         self._x = 0.0
@@ -192,12 +198,18 @@ class SimBackend(Backend):
     def _tick(self, dt: float) -> None:
         mujoco = self._mujoco
         with self._lock:
+            if self._reset_requested:
+                self._reset_to_home()
+                self._reset_requested = False
+                return
             vx, vy, wz = self._cmd
             mode = self._mode
             x, y, yaw = self._x, self._y, self._yaw
             self._clock += dt
             clock = self._clock
+            self._tick_locked(mujoco, dt, vx, vy, wz, mode, x, y, yaw, clock)
 
+    def _tick_locked(self, mujoco, dt, vx, vy, wz, mode, x, y, yaw, clock) -> None:
         if mode == "sit":
             self._write_pose(x, y, yaw, _STAND_HEIGHT * 0.55)
             self._write_joints(gait.sit_vector())
@@ -227,8 +239,7 @@ class SimBackend(Backend):
             else:
                 new_x, new_y = x, y
 
-        with self._lock:
-            self._x, self._y, self._yaw = new_x, new_y, new_yaw
+        self._x, self._y, self._yaw = new_x, new_y, new_yaw
 
     def _loop(self) -> None:
         next_tick = time.perf_counter()
@@ -256,12 +267,19 @@ class SimBackend(Backend):
     # ----------------------------------------------------------------- public
 
     def reset(self) -> None:
+        # Hand the work to the sim thread rather than touching MjData here:
+        # reset() is called from an HTTP handler in service mode.
         with self._lock:
             self._cmd = (0.0, 0.0, 0.0)
             self._mode = "stand"
             self._x = self._y = self._yaw = 0.0
             self._clock = 0.0
-        self._reset_to_home()
+            self._reset_requested = True
+        for _ in range(100):                 # wait for the tick to apply it
+            time.sleep(_SIM_DT)
+            with self._lock:
+                if not self._reset_requested:
+                    return
 
     def stand(self) -> None:
         with self._lock:
@@ -308,6 +326,9 @@ class SimBackend(Backend):
                     "MUJOCO_GL=osmesa (software) before starting Python.\n"
                 ) from exc
         with self._lock:
+            # update_scene READS MjData; render() works off the copied scene
+            # and is deliberately outside the lock so physics is not blocked
+            # by the GPU.
             self._renderer.update_scene(self._data, camera=camera)
         return self._renderer.render()
 

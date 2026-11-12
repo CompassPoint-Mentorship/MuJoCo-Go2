@@ -6,6 +6,7 @@ Run headless and faster than realtime, so the suite finishes in seconds:
 
 import math
 import os
+import time
 
 import numpy as np
 
@@ -195,3 +196,47 @@ def test_frame_endpoint_serves_a_jpeg(dog):
         frames.stop()
         server.shutdown()
         server.server_close()
+
+
+def test_reset_and_render_under_concurrent_load(dog):
+    """reset() + camera() from other threads must not corrupt MjData.
+
+    Regression: reset() ran mj_forward on the caller's thread and camera()
+    read MjData while the sim loop wrote it. MuJoCo has no internal locking,
+    so this segfaulted the process -- in service mode that silently killed
+    every student's simulator.
+    """
+    import threading
+
+    errors: list[BaseException] = []
+    stop = threading.Event()
+
+    def resetter():
+        try:
+            while not stop.is_set():
+                dog.reset()
+                dog.move(vx=0.4, wz=0.5)
+                dog.wait(0.02)
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    def renderer():
+        try:
+            while not stop.is_set():
+                dog.camera(width=96, height=72, camera="chase")
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    threads = [threading.Thread(target=resetter), threading.Thread(target=renderer),
+               threading.Thread(target=renderer)]
+    for t in threads:
+        t.start()
+    time.sleep(4.0)
+    stop.set()
+    for t in threads:
+        t.join(timeout=30)
+
+    assert not errors, f"concurrent access failed: {errors[0]!r}"
+    dog.reset()
+    p = dog.pose()
+    assert abs(p.x) < 1e-6 and abs(p.y) < 1e-6, f"reset left the dog at {p}"
