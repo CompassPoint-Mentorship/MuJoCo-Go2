@@ -87,6 +87,7 @@ limit**. One viewer costs a few percent of a core on top of the simulator.
 
 | Call | Does |
 |---|---|
+| `dog.say(audio)` | Play a sound from the dog (file, bytes or file object) |
 | `dog.reset()` | Back to the start: origin, stopped, standing |
 | `dog.stand()` | Stand still on all four legs |
 | `dog.sit()` | Lower the body to the ground |
@@ -176,6 +177,7 @@ go2/
     real.py           physical Go2 Pro — not implemented yet (step 2)
   web.py              browser viewer, split page, and the service's HTTP API
   service.py          `python -m go2.service` -- a long-lived simulator
+  audio.py            clips the dog can say, and which one is playing
   notebook.py         panel()/show()/live()/drive() -- renders inline in Jupyter
   assets/
     arena.xml         our scene

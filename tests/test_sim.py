@@ -240,3 +240,37 @@ def test_reset_and_render_under_concurrent_load(dog):
     dog.reset()
     p = dog.pose()
     assert abs(p.x) < 1e-6 and abs(p.y) < 1e-6, f"reset left the dog at {p}"
+
+
+def test_say_stores_and_marks_a_clip(dog):
+    """say() accepts bytes and makes the clip current for the viewer."""
+    before = dog._backend.audio.state()["seq"]
+    clip = dog.say(b"not really audio, but bytes are bytes")
+    state = dog._backend.audio.state()
+    assert state["clip"] == clip
+    assert state["seq"] == before + 1
+    assert dog._backend.audio.get(clip)[1].startswith(b"not really")
+
+
+def test_say_accepts_a_file_path(dog, tmp_path):
+    f = tmp_path / "hello.wav"
+    f.write_bytes(b"RIFF....WAVEfmt ")
+    clip = dog.say(f)
+    kind, data = dog._backend.audio.get(clip)
+    assert kind == "audio/wav", "content type should follow the extension"
+    assert data.startswith(b"RIFF")
+
+
+def test_say_rejects_an_oversized_clip(dog):
+    from go2.audio import MAX_CLIP_BYTES
+
+    with pytest.raises(ValueError, match="limit"):
+        dog.say(b"x" * (MAX_CLIP_BYTES + 1))
+
+
+def test_audio_store_drops_the_oldest_clips(dog):
+    from go2.audio import MAX_CLIPS
+
+    for i in range(MAX_CLIPS + 5):
+        dog.say(f"clip {i}".encode())
+    assert len(dog._backend.audio.ids()) == MAX_CLIPS

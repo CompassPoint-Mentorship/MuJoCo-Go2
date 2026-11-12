@@ -41,6 +41,14 @@ class Backend(ABC):
     """One way of driving a Go2."""
 
     @abstractmethod
+    def say(self, data: bytes, content_type: str = "audio/webm") -> str:
+        """Play an audio clip from the dog. Returns the clip id.
+
+        Simulated: the browser watching the dog plays it, since MuJoCo has no
+        speaker. Real robot: the Go2's own speaker, over its audio service.
+        """
+
+    @abstractmethod
     def reset(self) -> None:
         """Put the dog back where it started, stopped and standing."""
 

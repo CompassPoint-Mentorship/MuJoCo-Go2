@@ -60,6 +60,16 @@ class RemoteBackend(Backend):
 
     # ------------------------------------------------------------- motion
 
+    def say(self, data: bytes, content_type: str = "audio/webm") -> str:
+        req = urllib.request.Request(
+            f"{self.url}/audio", data=data, method="POST",
+            headers={"Content-Type": content_type},
+        )
+        with urllib.request.urlopen(req, timeout=_TIMEOUT) as r:
+            clip_id = json.loads(r.read().decode())["clip"]
+        self._get("cmd", say=clip_id)
+        return clip_id
+
     def reset(self) -> None:
         self._get("cmd", reset=1)
 

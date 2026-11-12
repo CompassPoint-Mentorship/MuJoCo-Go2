@@ -35,6 +35,7 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 
 from .. import gait
+from ..audio import AudioStore
 from .base import Backend, Pose, Velocity
 
 _ASSETS = pathlib.Path(__file__).resolve().parent.parent / "assets"
@@ -95,6 +96,10 @@ class SimBackend(Backend):
         self._yaw = 0.0
         self._clock = 0.0
 
+        # Clips the dog can say. Held here rather than in the web layer so a
+        # local install behaves the same -- though with no viewer open there
+        # is nothing to play it, which the docs say plainly.
+        self.audio = AudioStore()
         self._renderer = None
         # An EGL context belongs to ONE thread: calling eglMakeCurrent from a
         # second thread fails with EGL_BAD_ACCESS. The notebook's show() runs
@@ -265,6 +270,11 @@ class SimBackend(Backend):
                     next_tick = time.perf_counter()
 
     # ----------------------------------------------------------------- public
+
+    def say(self, data: bytes, content_type: str = "audio/webm") -> str:
+        clip_id = self.audio.add(data, content_type)
+        self.audio.play(clip_id)
+        return clip_id
 
     def reset(self) -> None:
         # Hand the work to the sim thread rather than touching MjData here:

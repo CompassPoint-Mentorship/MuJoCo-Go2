@@ -26,6 +26,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from .api import Go2
+from .audio import MAX_CLIP_BYTES
 
 _BOUNDARY = "go2frame"
 
@@ -66,6 +67,11 @@ _PAGE = """<!doctype html>
     <button data-cmd="stand=1">stand</button>
     <button data-cmd="reset=1">reset</button>
   </div>
+  <div class="row">
+    <button id="rec">● record your voice</button>
+    <span id="recstate"></span>
+  </div>
+  <audio id="speaker" hidden></audio>
   <div id="keys">drive with <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>,
     <kbd>space</kbd> to stop &mdash; hold to move</div>
 <script>
@@ -102,6 +108,57 @@ addEventListener('keyup', e => {
   const k = e.key.toLowerCase();
   if (held.delete(k)) push();
 });
+// --- recording -----------------------------------------------------------
+// Captured in the browser with MediaRecorder, POSTed to the service, then
+// played back by whoever is watching: the simulated dog has no speaker.
+// On the real robot the same clip goes to the Go2's own speaker.
+const recBtn = document.getElementById('rec');
+const recState = document.getElementById('recstate');
+let recorder = null, chunks = [];
+
+recBtn.onclick = async () => {
+  if (recorder && recorder.state === 'recording') { recorder.stop(); return; }
+  if (!navigator.mediaDevices || !window.MediaRecorder) {
+    recState.textContent = 'recording needs a secure page (https or localhost)';
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    recorder = new MediaRecorder(stream);
+    chunks = [];
+    recorder.ondataavailable = e => chunks.push(e.data);
+    recorder.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop());
+      recBtn.textContent = '● record your voice';
+      const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
+      recState.textContent = 'sending ' + Math.round(blob.size / 1024) + ' KB...';
+      const r = await fetch('audio', { method: 'POST', body: blob,
+                                       headers: { 'Content-Type': blob.type } });
+      recState.textContent = r.ok ? 'the dog will say it' : 'upload failed';
+    };
+    recorder.start();
+    recBtn.textContent = '■ stop';
+    recState.textContent = 'recording...';
+  } catch (err) {
+    recState.textContent = 'microphone blocked: ' + err.name;
+  }
+};
+
+// --- playback ------------------------------------------------------------
+// seq bumps every time something says(), including from Python, so the dog
+// speaks whether the clip was recorded here or sent from a notebook.
+const speaker = document.getElementById('speaker');
+let lastSeq = -1;
+setInterval(async () => {
+  try {
+    const a = await (await fetch('audio/state')).json();
+    if (a.clip && a.seq !== lastSeq) {
+      if (lastSeq !== -1) { speaker.src = 'audio/' + a.clip; speaker.play().catch(() => {}); }
+      lastSeq = a.seq;
+    }
+  } catch (_) {}
+}, 500);
+
 setInterval(async () => {
   try {
     const p = await (await fetch('pose')).json();
@@ -115,7 +172,7 @@ setInterval(async () => {
 """
 
 
-_SPLIT = """<!doctype html>
+_SPLIT = r"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
@@ -167,6 +224,11 @@ addEventListener('mousemove', e => {
 </body>
 </html>
 """
+
+
+def _audio_store(dog):
+    """The clip store behind whichever backend this dog uses."""
+    return dog._backend.audio  # noqa: SLF001 - the service owns its backend
 
 
 def _split_page(query: str) -> str:
@@ -236,6 +298,30 @@ def _handler(dog: Go2, frames: _Frames):
             self.end_headers()
             self.wfile.write(body)
 
+        def do_POST(self) -> None:
+            url = urlparse(self.path)
+            if url.path != "/audio":
+                self._send(b"not found", "text/plain", 404)
+                return
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                length = 0
+            if length <= 0:
+                self._send(b'{"error":"empty upload"}', "application/json", 400)
+                return
+            if length > MAX_CLIP_BYTES:
+                self._send(b'{"error":"clip too large"}', "application/json", 413)
+                return
+            data = self.rfile.read(length)
+            ctype = self.headers.get("Content-Type") or "audio/webm"
+            try:
+                clip = dog.say(data, content_type=ctype)
+            except ValueError as exc:
+                self._send(f'{{"error":"{exc}"}}'.encode(), "application/json", 400)
+                return
+            self._send(f'{{"clip":"{clip}"}}'.encode(), "application/json")
+
         def do_GET(self) -> None:
             url = urlparse(self.path)
             if url.path in ("", "/"):
@@ -247,6 +333,17 @@ def _handler(dog: Go2, frames: _Frames):
             elif url.path == "/cmd":
                 self._command(parse_qs(url.query))
                 self._send(b"ok", "text/plain")
+            elif url.path == "/audio/state":
+                st = _audio_store(dog).state()
+                body = (f'{{"clip":{"null" if st["clip"] is None else chr(34)+st["clip"]+chr(34)},'
+                        f'"seq":{st["seq"]},"count":{st["count"]}}}').encode()
+                self._send(body, "application/json")
+            elif url.path.startswith("/audio/"):
+                clip = _audio_store(dog).get(url.path[len("/audio/"):])
+                if clip is None:
+                    self._send(b"no such clip", "text/plain", 404)
+                else:
+                    self._send(clip[1], clip[0])
             elif url.path == "/split":
                 self._send(_split_page(url.query).encode(), "text/html; charset=utf-8")
             elif url.path == "/state":
@@ -283,6 +380,12 @@ def _handler(dog: Go2, frames: _Frames):
             self._send(frames.encode(rgb), "image/jpeg")
 
         def _command(self, q: dict[str, list[str]]) -> None:
+            if "say" in q:
+                try:
+                    _audio_store(dog).play(q["say"][0])
+                except KeyError:
+                    pass
+                return
             if "reset" in q:
                 dog.reset()
                 return

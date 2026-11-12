@@ -50,6 +50,11 @@ class RealBackend(Backend):
 
     # The abstract methods below are never reached; they exist so this class is
     # instantiable-shaped and the interface stays honest.
+    def say(self, data: bytes, content_type: str = "audio/webm") -> str:
+        # Step 2: POST the clip to the robot's audio service. go2-pocket
+        # drives this over WebRTC on rt/api/audiohub/request, and the Go2
+        # Pro has a speaker, so this needs no EDU hardware.
+        raise NotImplementedError(_MESSAGE)
     def reset(self) -> None: raise NotImplementedError(_MESSAGE)
     def stand(self) -> None: raise NotImplementedError(_MESSAGE)
     def sit(self) -> None: raise NotImplementedError(_MESSAGE)

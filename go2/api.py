@@ -116,6 +116,29 @@ class Go2:
 
     # ---------------------------------------------------------------- motion
 
+    def say(self, audio, content_type: str | None = None) -> str:
+        """Play a sound from the dog. Returns the clip id.
+
+            dog.say("hello.wav")            # a file
+            dog.say(open("hi.webm","rb"))   # a file object
+            dog.say(raw_bytes)
+            dog.say(raw_bytes, content_type="audio/wav")
+
+        `content_type` is guessed from a file's extension; pass it explicitly
+        for raw bytes whose format you know.
+
+        In simulation the dog has no speaker -- MuJoCo does not do sound -- so
+        the browser watching the dog plays it. With no viewer open, the clip is
+        stored and nothing is audible. On the real robot it goes to the Go2's
+        own speaker.
+
+        To record your own voice, use the "record your voice" button in the
+        viewer panel: the browser captures the microphone, uploads it, and the
+        dog says it straight back.
+        """
+        data, guessed = _read_audio(audio)
+        return self._backend.say(data, content_type or guessed)
+
     def reset(self) -> "Go2":
         """Put the dog back at the start: origin, stopped, standing.
 
@@ -210,3 +233,19 @@ class Go2:
 
 def _clamp(value: float, limit: float) -> float:
     return max(-limit, min(limit, float(value)))
+
+
+def _read_audio(source) -> tuple[bytes, str]:
+    """Accept a path, raw bytes, or a file-like object."""
+    import pathlib as _pathlib
+
+    types = {".webm": "audio/webm", ".wav": "audio/wav", ".mp3": "audio/mpeg",
+             ".ogg": "audio/ogg", ".m4a": "audio/mp4", ".flac": "audio/flac"}
+    if isinstance(source, (bytes, bytearray)):
+        return bytes(source), "audio/webm"
+    if hasattr(source, "read"):
+        return source.read(), "audio/webm"
+    path = _pathlib.Path(source)
+    if not path.exists():
+        raise FileNotFoundError(f"no such audio file: {path}")
+    return path.read_bytes(), types.get(path.suffix.lower(), "audio/webm")
