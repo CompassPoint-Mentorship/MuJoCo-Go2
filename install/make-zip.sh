@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the file students download: Go2-Simulator-macOS.zip
+# Build the file students download: Go2-Lab-macOS.zip
 #
 # The zip holds a double-clickable installer and a note about Gatekeeper --
 # not the simulator itself. The installer fetches the current code from the
@@ -7,11 +7,11 @@
 # the simulator changes.
 #
 # Attach the result to a GitHub release:
-#   gh release create v1 install/Go2-Simulator-macOS.zip \
-#      -t "Go2 Simulator for macOS" -n "Download, unzip, read READ ME FIRST."
+#   gh release create v1 install/Go2-Lab-macOS.zip \
+#      -t "Go2 Lab for macOS" -n "Download, unzip, read READ ME FIRST."
 set -euo pipefail
 cd "$(dirname "$0")"
-OUT="${1:-$PWD/Go2-Simulator-macOS.zip}"
+OUT="${1:-$PWD/Go2-Lab-macOS.zip}"
 
 # Written with Python rather than `zip` so the executable bit on the .command
 # is set explicitly. Without it macOS opens the installer in TextEdit, which
@@ -22,8 +22,8 @@ import pathlib, sys, zipfile
 out = pathlib.Path(sys.argv[1])
 here = pathlib.Path.cwd()   # make-zip.sh cd-s here first
 files = {
-    "Go2 Simulator/Install Go2 Simulator.command": (here / "Install Go2 Simulator.command", 0o755),
-    "Go2 Simulator/READ ME FIRST.txt":             (here / "READ ME FIRST.txt",              0o644),
+    "Go2 Lab/Install Go2 Lab.command": (here / "Install Go2 Lab.command", 0o755),
+    "Go2 Lab/READ ME FIRST.txt":       (here / "READ ME FIRST.txt",       0o644),
 }
 out.unlink(missing_ok=True)
 with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:

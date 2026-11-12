@@ -131,12 +131,13 @@ chmod +x "$LAUNCH"
 cat > "$PREFIX/bin/go2-uninstall" <<UNINSTALL
 #!/bin/bash
 set -e
-echo "This removes the Go2 simulator program. Your notebooks are NOT touched."
+echo "This removes the Go2 Lab program. Your notebooks are NOT touched."
 read -r -p "Continue? [y/N] " a
 [ "\$a" = "y" ] || exit 0
 rm -rf "$PREFIX"
-rm -rf "\$HOME/Applications/Go2 Simulator.app"
-echo "Removed. Your work is still in ~/Documents/Go2 Simulator."
+rm -rf "\$HOME/Applications/Go2 Lab.app"
+rm -rf "\$HOME/Applications/Go2 Simulator.app"   # the name used before
+echo "Removed. Your notebooks are untouched, in your Documents folder."
 UNINSTALL
 chmod +x "$PREFIX/bin/go2-uninstall"
 
@@ -153,16 +154,28 @@ done
 
 # ----------------------------------------------------------------- the .app
 if [ "$OS" = "Darwin" ]; then
-  APP="$HOME/Applications/Go2 Simulator.app"
+  # Named "Go2 Lab", not "Go2 Simulator", because the notebooks folder is in
+  # Spotlight too and a folder the student writes to all day outranks an app
+  # they launch once -- so typing the old name offered the folder first, and
+  # opening it did nothing. "Go2 Lab" matches the window title and the
+  # go2-lab command, and nothing else on the machine answers to it.
+  APP="$HOME/Applications/Go2 Lab.app"
   rm -rf "$APP"
+  # Retire the old name, but only if it is one of ours: the marker is the
+  # launcher path we wrote into it.
+  OLDAPP="$HOME/Applications/Go2 Simulator.app"
+  if [ -e "$OLDAPP/Contents/MacOS/go2" ] && grep -q "\.go2/bin/go2-lab.command" "$OLDAPP/Contents/MacOS/go2" 2>/dev/null; then
+    rm -rf "$OLDAPP"
+    say "Replaced the older \"Go2 Simulator\" app with \"Go2 Lab\"."
+  fi
   mkdir -p "$APP/Contents/MacOS"
   cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key>              <string>Go2 Simulator</string>
-  <key>CFBundleDisplayName</key>       <string>Go2 Simulator</string>
+  <key>CFBundleName</key>              <string>Go2 Lab</string>
+  <key>CFBundleDisplayName</key>       <string>Go2 Lab</string>
   <key>CFBundleIdentifier</key>        <string>org.cpmentorship.go2</string>
   <key>CFBundleVersion</key>           <string>1.0</string>
   <key>CFBundleShortVersionString</key><string>1.0</string>
@@ -184,6 +197,18 @@ APPEXEC
   xattr -cr "$APP" 2>/dev/null || true
 fi
 
+# Where go2-lab will keep the student's notebooks. Said out loud below,
+# because "your work is saved somewhere" is not an answer.
+if [ "$OS" = "Darwin" ]; then
+  if [ -d "$HOME/Documents/Go2 Simulator" ]; then
+    NOTEBOOKS="your Documents folder, under \"Go2 Simulator\""
+  else
+    NOTEBOOKS="your Documents folder, under \"Go2 Notebooks\""
+  fi
+else
+  NOTEBOOKS="~/go2-lab"
+fi
+
 # ------------------------------------------------------------------- verify
 say "Checking that it actually works"
 if ! "$VENV/bin/go2-lab" --check; then
@@ -195,15 +220,23 @@ say "Done."
 if [ "$OS" = "Darwin" ]; then
   cat <<DONE
 
-  Start it:   press Command-Space, type "Go2 Simulator", press Return.
+  TO START IT
 
-              Or in Finder: press Shift-Command-H to open your home
-              folder, then open the "Applications" folder inside it.
-              That is your personal one ($HOME/Applications) -- not
-              the system Applications in the Finder sidebar, which
-              would have needed your password.
+    1. Press Command-Space.
+    2. Type:  Go2 Lab
+    3. Press Return.
 
-  From a terminal:    $LAUNCH
+    Pick the result with the APP icon, named "Go2 Lab". Spotlight
+    also lists folders; a folder will not start anything.
+
+    It is in your own Applications folder if you would rather click:
+    in Finder press Shift-Command-H for your home folder, then open
+    "Applications" inside it. That is yours ($HOME/Applications), not
+    the system Applications in the sidebar.
+
+    Prefer Terminal? Paste this line and press Return:
+
+        "$LAUNCH"
 
   The first time, macOS may ask whether Terminal can read your
   Documents folder. Say yes -- that is where your notebooks are kept.
@@ -216,13 +249,16 @@ else
 
 DONE
 fi
-cat <<'DONE2'
-  Your browser opens with the notebook on the left and the dog on the
-  right. Notebooks live in your Documents folder, under
-  "Go2 Simulator" -- open that folder to back your work up.
+cat <<DONE2
+  A window titled "Go2 Lab" opens and stays open -- that is the lab
+  running; closing it stops the lab. Your browser opens with the
+  notebook on the left and the dog on the right.
+
+  Your notebooks are saved in $NOTEBOOKS. Back that folder up;
+  nothing else installed here is yours.
 
   For the commands (go2-lab, go2-run) on your PATH, add this to
-  your shell profile:   export PATH="$HOME/.go2/bin:$PATH"
+  your shell profile:   export PATH="\$HOME/.go2/bin:\$PATH"
 
   To update later, run this installer again.
 DONE2

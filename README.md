@@ -60,20 +60,20 @@ curl -fsSL https://raw.githubusercontent.com/CompassPoint-Mentorship/MuJoCo-Go2/
 ```
 
 or, if they would rather not touch a terminal, downloads
-`Go2-Simulator-macOS.zip` from the releases page and double-clicks
-**Install Go2 Simulator**. Build that zip with `install/make-zip.sh`; it holds
+`Go2-Lab-macOS.zip` from the releases page and double-clicks
+**Install Go2 Lab**. Build that zip with `install/make-zip.sh`; it holds
 the installer and a note about Gatekeeper, not the simulator, so it never goes
 stale.
 
-Then they open **Go2 Simulator** from their Applications folder. A browser tab
+Then they open **Go2 Lab** from their Applications folder. A browser tab
 opens with the notebook on the left and the dog on the right — the same page
 the server serves.
 
 | | Where |
 |---|---|
 | The program | `~/.go2` (its own Python; nothing system-wide) |
-| The launcher | `~/Applications/Go2 Simulator.app` |
-| Their work | `~/Documents/Go2 Simulator` |
+| The launcher | `~/Applications/Go2 Lab.app` |
+| Their work | `~/Documents/Go2 Notebooks` (installs predating the rename keep `Go2 Simulator`) |
 | Uninstall | `~/.go2/bin/go2-uninstall` — leaves the notebooks alone |
 
 Re-running the installer upgrades in place.

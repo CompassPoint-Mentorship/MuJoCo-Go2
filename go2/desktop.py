@@ -73,7 +73,12 @@ def default_work_dir() -> pathlib.Path:
     point of a local install is being able to open the folder.
     """
     if platform.system() == "Darwin":
-        return pathlib.Path.home() / "Documents" / "Go2 Simulator"
+        docs = pathlib.Path.home() / "Documents"
+        # Installs before the rename keep their folder: a student's notebooks
+        # are not worth moving to tidy up a name, and a second folder with
+        # half their work in it is worse than an old name.
+        old = docs / "Go2 Simulator"
+        return old if old.is_dir() else docs / "Go2 Notebooks"
     return pathlib.Path.home() / "go2-lab"
 
 

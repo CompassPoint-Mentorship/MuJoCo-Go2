@@ -7,7 +7,7 @@ clear
 cat <<'BANNER'
 
   ┌──────────────────────────────────────────┐
-  │   Go2 Simulator — installing             │
+  │   Go2 Lab — installing             │
   └──────────────────────────────────────────┘
 
   This takes a few minutes the first time and needs WiFi.

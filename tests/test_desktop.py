@@ -125,8 +125,15 @@ def test_go2_run_executes_a_script(tmp_path, monkeypatch, capsys):
     assert "ran as __main__" in capsys.readouterr().out
 
 
-def test_default_work_dir_is_somewhere_a_student_can_find(monkeypatch):
+def test_default_work_dir_is_somewhere_a_student_can_find(monkeypatch, tmp_path):
     monkeypatch.setattr(desktop.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(desktop.pathlib.Path, "home", classmethod(lambda cls: tmp_path))
+    assert desktop.default_work_dir().parts[-2:] == ("Documents", "Go2 Notebooks")
+
+    # An install from before the rename keeps its folder, and with it the
+    # student's work: a tidier name is not worth splitting someone's
+    # notebooks across two directories.
+    (tmp_path / "Documents" / "Go2 Simulator").mkdir(parents=True)
     assert desktop.default_work_dir().parts[-2:] == ("Documents", "Go2 Simulator")
 
 

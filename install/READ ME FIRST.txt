@@ -1,14 +1,14 @@
-Go2 Simulator — installing on a Mac
-===================================
+Go2 Lab — installing on a Mac
+=============================
 
-Double-click  "Install Go2 Simulator.command"
+Double-click  "Install Go2 Lab.command"
 
 
 macOS will probably refuse the first time
 -----------------------------------------
 You may see:
 
-    "Install Go2 Simulator.command" cannot be opened because it is
+    "Install Go2 Lab.command" cannot be opened because it is
     from an unidentified developer.
 
 That is macOS being careful about files from the internet, not a sign
@@ -36,9 +36,16 @@ curl -fsSL https://raw.githubusercontent.com/CompassPoint-Mentorship/MuJoCo-Go2/
 
 Using it
 --------
-Press Cmd-Space, type "Go2 Simulator", press Return. (It is also in
-your own Applications folder: in Finder press Shift-Cmd-H, then open
-Applications.)
+  1. Press Cmd-Space.
+  2. Type:  Go2 Lab
+  3. Press Return.
+
+Pick the result with the APP icon, named "Go2 Lab". Spotlight lists
+folders as well, and opening a folder starts nothing.
+
+(It is also in your own Applications folder, if you would rather click:
+in Finder press Shift-Cmd-H for your home folder, then open the
+Applications folder inside it.)
 
 A black terminal window titled "Go2 Lab" opens and stays open, and your
 browser opens with the notebook on the left and the dog on the right.
@@ -62,9 +69,9 @@ What gets installed
 Everything lands in two folders you own. Nothing system-wide, and you
 are never asked for a password.
 
-  ~/.go2                            the simulator and its own Python
-  ~/Applications/Go2 Simulator.app  the thing you double-click to start
-  ~/Documents/Go2 Simulator         your notebooks (yours to keep)
+  ~/.go2                         the simulator and its own Python
+  ~/Applications/Go2 Lab.app     the thing you start
+  ~/Documents/Go2 Notebooks      your notebooks (yours to keep)
 
 To remove it later, run  ~/.go2/bin/go2-uninstall  in Terminal. Your
 notebooks are not touched.
