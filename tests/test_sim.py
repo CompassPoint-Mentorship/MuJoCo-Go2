@@ -103,3 +103,29 @@ def test_context_manager_closes_cleanly():
 def test_real_backend_fails_with_a_clear_message():
     with pytest.raises(NotImplementedError, match="step 2"):
         Go2(sim=False)
+
+
+def test_chase_camera_differs_from_head(dog):
+    """The arena defines an outside 'chase' view as well as the robot's 'head'."""
+    head = dog.camera(width=160, height=120, camera="head")
+    chase = dog.camera(width=160, height=120, camera="chase")
+    assert head.shape == chase.shape
+    assert np.ptp(chase) > 0
+    assert not np.array_equal(head, chase), "both cameras rendered the same image"
+
+
+def test_web_viewer_encodes_a_frame(dog):
+    """The browser viewer can turn a rendered frame into a JPEG."""
+    pytest.importorskip("PIL")
+    from go2.web import _Frames
+
+    frames = _Frames(dog, width=160, height=120, fps=10, camera="chase")
+    try:
+        for _ in range(50):
+            if frames.latest:
+                break
+            dog.wait(0.05)
+        assert frames.latest, "no frame was produced"
+        assert frames.latest[:2] == b"\xff\xd8", "not a JPEG"
+    finally:
+        frames.stop()

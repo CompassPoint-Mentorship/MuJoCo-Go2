@@ -43,6 +43,31 @@ viewer must start with `mjpython` (it ships inside the `mujoco` wheel — you
 already have it). Everything headless — `Go2(viewer=False)` — runs under plain
 `python` on both. If you forget, the error message tells you.
 
+## Watch it in a browser instead
+
+No window, no `mjpython`, nothing installed on the viewer's machine:
+
+```bash
+pip install -e ".[web]"
+python -m go2.web                   # then open http://<host>:8300/
+```
+
+Drive with `W`/`A`/`S`/`D`, space to stop, buttons for sit/stand, live pose
+readout. Useful on a headless server, over SSH, or to show the thing to someone
+without setting anything up.
+
+```bash
+python -m go2.web --camera head     # the robot's forward view instead
+python -m go2.web --host 127.0.0.1  # local only
+```
+
+It is MJPEG over plain HTTP -- no WebRTC, no H.264, so **no NVENC session
+limit**. One viewer costs a few percent of a core on top of the simulator.
+
+> **No authentication.** It binds all interfaces by default, so anyone who can
+> reach the port can drive the dog. It is a simulated dog, so the stakes are
+> low, but use `--host 127.0.0.1` if that matters.
+
 ## The API
 
 | Call | Does |
@@ -55,6 +80,7 @@ already have it). Everything headless — `Go2(viewer=False)` — runs under pla
 | `dog.pose()` | `Pose(x, y, yaw)` — metres, radians, world frame |
 | `dog.velocity()` | The velocity currently commanded |
 | `dog.camera(w, h)` | Forward-facing RGB image, `(h, w, 3)` uint8 |
+| `dog.camera(..., camera="chase")` | Outside view that follows the dog. **Simulator only** |
 | `dog.wait(s)` | Sleep while the dog keeps doing what it was told |
 | `dog.close()` | Shut down (or use `with Go2(...) as dog:`) |
 
@@ -131,6 +157,7 @@ go2/
     base.py           the interface every backend implements
     sim.py            MuJoCo backend
     real.py           physical Go2 Pro — not implemented yet (step 2)
+  web.py              browser viewer: MJPEG stream + drive controls
   assets/
     arena.xml         our scene
     go2.xml, assets/  Go2 model vendored from MuJoCo Menagerie (BSD-3, Unitree)
@@ -148,8 +175,10 @@ kept as `LICENSE` and `UPSTREAM_README.md` for diffing on upgrade.
 - [ ] **Step 2** — real Go2 Pro backend over WebRTC
 - [ ] **Step 3** — trained walking policy, so the sim looks right
 - [ ] **Step 4** — assignments and student setup guide
-- [ ] **Step 5** *(optional)* — server-hosted browser version, in Docker, for
-      students who cannot install locally
+- [x] **Step 5a** — browser viewer (`python -m go2.web`), so the sim can be
+      watched and driven from any machine with no local install
+- [ ] **Step 5b** *(optional)* — package that as one container per student on a
+      shared GPU box, the way the Isaac Sim deployment works
 
 ### About the real robot (step 2)
 

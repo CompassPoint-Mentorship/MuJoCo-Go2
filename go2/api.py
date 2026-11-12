@@ -111,9 +111,15 @@ class Go2:
         """The velocity currently being commanded."""
         return self._backend.velocity()
 
-    def camera(self, width: int = 640, height: int = 480) -> np.ndarray:
-        """A forward-facing RGB image as a (height, width, 3) uint8 array."""
-        return self._backend.camera(width=width, height=height)
+    def camera(self, width: int = 640, height: int = 480, camera: str = "head") -> np.ndarray:
+        """An RGB image as a (height, width, 3) uint8 array.
+
+        `camera="head"` is the robot's forward view and is the only one the
+        real robot has. The simulator arena also offers `camera="chase"`, an
+        outside view that follows the dog -- handy for watching, useless as
+        a sensor, and unavailable on hardware.
+        """
+        return self._backend.camera(width=width, height=height, camera=camera)
 
     # ------------------------------------------------------------- lifecycle
 

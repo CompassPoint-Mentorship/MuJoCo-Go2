@@ -274,7 +274,7 @@ class SimBackend(Backend):
         with self._lock:
             return Velocity(*self._cmd)
 
-    def camera(self, width: int = 640, height: int = 480) -> np.ndarray:
+    def camera(self, width: int = 640, height: int = 480, camera: str = "head") -> np.ndarray:
         mujoco = self._mujoco
         if self._renderer is None or self._renderer.width != width or self._renderer.height != height:
             if self._renderer is not None:
@@ -288,7 +288,7 @@ class SimBackend(Backend):
                     "MUJOCO_GL=osmesa (software) before starting Python.\n"
                 ) from exc
         with self._lock:
-            self._renderer.update_scene(self._data, camera="head")
+            self._renderer.update_scene(self._data, camera=camera)
         return self._renderer.render()
 
     def close(self) -> None:

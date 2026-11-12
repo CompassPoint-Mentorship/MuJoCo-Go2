@@ -56,5 +56,5 @@ class RealBackend(Backend):
     def stop(self) -> None: raise NotImplementedError(_MESSAGE)
     def pose(self) -> Pose: raise NotImplementedError(_MESSAGE)
     def velocity(self) -> Velocity: raise NotImplementedError(_MESSAGE)
-    def camera(self, width: int, height: int) -> np.ndarray: raise NotImplementedError(_MESSAGE)
+    def camera(self, width: int, height: int, camera: str = "head") -> np.ndarray: raise NotImplementedError(_MESSAGE)
     def close(self) -> None: raise NotImplementedError(_MESSAGE)

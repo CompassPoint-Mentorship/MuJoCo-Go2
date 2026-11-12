@@ -60,8 +60,13 @@ class Backend(ABC):
     def velocity(self) -> Velocity: ...
 
     @abstractmethod
-    def camera(self, width: int, height: int) -> np.ndarray:
-        """Forward-facing RGB image, shape (height, width, 3), dtype uint8."""
+    def camera(self, width: int, height: int, camera: str = "head") -> np.ndarray:
+        """RGB image, shape (height, width, 3), dtype uint8.
+
+        `camera` names a camera in the scene. "head" is the robot's
+        forward-facing view; the simulator arena also defines "chase".
+        A real robot only has "head".
+        """
 
     @abstractmethod
     def close(self) -> None: ...
