@@ -116,7 +116,10 @@ it is findable among a dozen others. Two things it does because the URL carries
 a per-launch token and nobody is going to retype it:
 
 - **Press Return** in that window to reopen the lab in the browser. Closing the
-  tab is not a reason to restart the lab.
+  tab is not a reason to restart the lab. If a tab is already open it says so
+  first — the service knows, because the split page polls `/frame` constantly,
+  so a fetch in the last few seconds means someone is watching. It still
+  opens, since raising the browser is half of why Return gets pressed.
 - **Closing the window stops the lab**, on purpose. macOS sends `SIGHUP`, which
   the launcher turns into the same shutdown Ctrl-C does, so JupyterLab and the
   simulator go with it rather than lingering on their ports.

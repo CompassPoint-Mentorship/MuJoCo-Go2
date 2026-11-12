@@ -294,6 +294,10 @@ class _Frames:
 
 
 def _handler(dog: Go2, frames: _Frames):
+    # When a frame was last fetched, i.e. when someone was last looking.
+    # A list because the handler closes over it and stamps it per request.
+    last_frame_at = [0.0]
+
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
@@ -365,7 +369,16 @@ def _handler(dog: Go2, frames: _Frames):
                 self._send(body, "application/json")
             elif url.path == "/camera":
                 self._camera(parse_qs(url.query))
+            elif url.path == "/watchers":
+                # "Is anyone looking at the dog right now?" The split page
+                # polls /frame many times a second, so a recent fetch means a
+                # lab tab is open somewhere. go2-lab asks this before opening
+                # another browser tab; nothing else depends on it.
+                t = last_frame_at[0]
+                age = "null" if t == 0.0 else f"{time.monotonic() - t:.2f}"
+                self._send(f'{{"age":{age}}}'.encode(), "application/json")
             elif url.path == "/frame":
+                last_frame_at[0] = time.monotonic()
                 jpeg = frames.latest
                 if jpeg is None:
                     self._send(b"not ready", "text/plain", 503)
@@ -374,6 +387,7 @@ def _handler(dog: Go2, frames: _Frames):
             elif url.path == "/stream":
                 # Kept for direct use (curl, VLC, a plain browser tab). Do not
                 # rely on it behind a proxy -- see the note in _PAGE.
+                last_frame_at[0] = time.monotonic()
                 self._stream()
             else:
                 self._send(b"not found", "text/plain", 404)

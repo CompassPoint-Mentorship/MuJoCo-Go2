@@ -26,6 +26,7 @@ under ``mjpython`` on macOS automatically, so ``Go2(viewer=True)`` just works.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import pathlib
 import platform
@@ -240,7 +241,24 @@ def _set_window_title(text: str) -> None:
         pass
 
 
-def _watch(lab: subprocess.Popen, url: str) -> None:
+def _viewer_is_live(watchers_url: str | None, within: float = 3.0) -> bool:
+    """Does a lab tab already appear to be open?
+
+    The split page polls /frame continuously, so a fetch in the last few
+    seconds means a browser is watching. Only used to warn before opening a
+    second tab -- so every failure here answers "no" and says nothing.
+    """
+    if not watchers_url:
+        return False
+    try:
+        with urllib.request.urlopen(watchers_url, timeout=1.0) as resp:
+            age = json.loads(resp.read().decode()).get("age")
+    except Exception:
+        return False
+    return isinstance(age, (int, float)) and age <= within
+
+
+def _watch(lab: subprocess.Popen, url: str, watchers_url: str | None = None) -> None:
     """Wait for JupyterLab to exit; reopen the browser on every Return.
 
     The URL carries a per-launch token, so it is long and nobody is going to
@@ -270,6 +288,14 @@ def _watch(lab: subprocess.Popen, url: str) -> None:
             # the end of anyone pressing Return at us.
             interactive = False
             continue
+        if _viewer_is_live(watchers_url):
+            # Opening it anyway is still the useful thing -- it brings the
+            # browser to the front, which is half of why Return gets pressed.
+            # But two tabs means two copies of the same notebook, and Jupyter
+            # handles that with "file changed on disk" dialogs, so say so.
+            print("  note: a lab tab looks like it is already open -- check your")
+            print("        other browser tabs and windows first. Opening another")
+            print("        one gives you two copies of the same notebook.")
         print(f"  opening {url}")
         webbrowser.open(url)
 
@@ -360,7 +386,7 @@ def run_lab(args: argparse.Namespace) -> int:
         if not args.no_browser:
             webbrowser.open(url)
 
-        _watch(lab, url)
+        _watch(lab, url, f"http://127.0.0.1:{sim_port}/watchers")
         print("[go2] JupyterLab exited.", file=sys.stderr)
     except KeyboardInterrupt:
         print("\n[go2] stopping ...")

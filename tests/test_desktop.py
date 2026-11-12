@@ -151,3 +151,48 @@ def test_watch_returns_when_the_lab_exits():
     elapsed = time.monotonic() - t0
     assert proc.poll() is not None
     assert elapsed < 5.0, f"_watch hung for {elapsed:.1f}s after the lab exited"
+
+
+def test_viewer_is_live_says_no_when_it_cannot_tell():
+    """Every failure must answer "no": this only gates a warning message.
+
+    A wrong "yes" tells a student a tab is open when none is, which sends
+    them hunting through their windows for nothing.
+    """
+    assert desktop._viewer_is_live(None) is False
+    # Nothing listening on this port -- refused, not a slow timeout.
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        dead = s.getsockname()[1]
+    t0 = time.monotonic()
+    assert desktop._viewer_is_live(f"http://127.0.0.1:{dead}/watchers") is False
+    assert time.monotonic() - t0 < 3.0
+
+
+def test_watchers_endpoint_tracks_frame_fetches():
+    """/frame stamps the clock; /watchers reports how long ago."""
+    import json
+    import urllib.error
+    import urllib.request
+
+    from go2.api import Go2
+    from go2.web import serve_background
+
+    dog = Go2(sim=True, viewer=False)
+    server, _frames = serve_background(dog, host="127.0.0.1", port=0, fps=5)
+    port = server.server_address[1]
+    try:
+        url = f"http://127.0.0.1:{port}"
+        assert json.loads(urllib.request.urlopen(f"{url}/watchers", timeout=5).read())["age"] is None
+        try:
+            urllib.request.urlopen(f"{url}/frame", timeout=5).read()
+        except urllib.error.HTTPError as exc:
+            # 503 "not ready" is fine: the first render may still be in
+            # flight. Asking for a frame is what counts as looking.
+            assert exc.code == 503
+        age = json.loads(urllib.request.urlopen(f"{url}/watchers", timeout=5).read())["age"]
+        assert age is not None and age < 2.0
+    finally:
+        server.shutdown()
+        server.server_close()
+        dog.close()
