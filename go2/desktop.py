@@ -26,6 +26,7 @@ under ``mjpython`` on macOS automatically, so ``Go2(viewer=True)`` just works.
 from __future__ import annotations
 
 import argparse
+import filecmp
 import json
 import os
 import pathlib
@@ -82,17 +83,72 @@ def default_work_dir() -> pathlib.Path:
     return pathlib.Path.home() / "go2-lab"
 
 
-def seed_work_dir(work: pathlib.Path) -> None:
-    """Copy the course material in, without ever clobbering student edits."""
+SEED = ".go2-seed"
+
+
+def _same(a: pathlib.Path, b: pathlib.Path) -> bool:
+    try:
+        return filecmp.cmp(a, b, shallow=False)
+    except OSError:
+        return False
+
+
+def seed_work_dir(work: pathlib.Path) -> list[str]:
+    """Hand over the course material, without ever eating the student's work.
+
+    Same rules as the class server's `go2-student.sh sync`, so a notebook
+    fixed upstream reaches a laptop as well -- "we fixed it, but only for
+    people who have not started yet" is not a fix.
+
+    A copy of exactly what was handed over lives in `.go2-seed`. Comparing it
+    with the student's file is what tells us whether they have touched it,
+    which the old "copy if absent" rule could not: it meant a fix never
+    arrived, for anyone, ever.
+
+        missing          copy it in
+        same as seed     never edited, so replace it
+        anything else    leave it; the new version lands beside it as
+                         <name>.updated.<ext>
+
+    Files the student makes themselves are never considered: only names that
+    exist in the coursework folder are ever looked at.
+
+    Returns one line per thing done, for the launcher to print.
+    """
     work.mkdir(parents=True, exist_ok=True)
     if not COURSEWORK.is_dir():
-        return
+        return []
+    seed = work / SEED
+    seed.mkdir(exist_ok=True)
+    notes: list[str] = []
+
     for src in sorted(COURSEWORK.iterdir()):
         if src.name.startswith((".", "__")) or src.is_dir():
             continue
         dst = work / src.name
+        kept = seed / src.name
+
         if not dst.exists():
             shutil.copy2(src, dst)
+            shutil.copy2(src, kept)
+            notes.append(f"added {src.name}")
+        elif _same(src, dst):
+            shutil.copy2(src, kept)          # backfill for older installs
+        elif kept.exists() and _same(kept, dst):
+            shutil.copy2(src, dst)
+            shutil.copy2(src, kept)
+            notes.append(f"updated {src.name} (you had not changed it)")
+        else:
+            new = dst.with_name(f"{src.stem}.updated{src.suffix}")
+            if new.exists() and kept.exists() and not _same(new, kept):
+                # They have started working in the copy we left last time, so
+                # it is theirs now and gets the same protection.
+                notes.append(f"kept your {src.name} and your {new.name}")
+            elif not (new.exists() and _same(src, new)):
+                shutil.copy2(src, new)
+                notes.append(f"kept your {src.name}; the new one is {new.name}")
+            shutil.copy2(src, kept)
+    return notes
 
 
 def _jupyter_cmd() -> list[str]:
@@ -311,9 +367,18 @@ def run_lab(args: argparse.Namespace) -> int:
     _require("jupyter_server_proxy", 'pip install "go2[lab]"')
 
     _set_window_title(WINDOW_TITLE)
+    # Line-buffer our own output. Python block-buffers stdout when it is not a
+    # terminal, so anyone logging a launch to a file (a shared machine, a bug
+    # report) got JupyterLab's stderr interleaved with nothing of ours until
+    # the process ended.
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except (AttributeError, OSError):  # pragma: no cover - odd stdout
+        pass
 
     work = pathlib.Path(args.work).expanduser() if args.work else default_work_dir()
-    seed_work_dir(work)
+    for note in seed_work_dir(work):
+        print(f"[go2] {note}")
 
     sim_port = args.sim_port or _free_port()
     lab_port = args.port or _free_port()

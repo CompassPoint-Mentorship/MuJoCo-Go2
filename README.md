@@ -76,7 +76,27 @@ the server serves.
 | Their work | `~/Documents/Go2 Notebooks` (installs predating the rename keep `Go2 Simulator`) |
 | Uninstall | `~/.go2/bin/go2-uninstall` — leaves the notebooks alone |
 
-Re-running the installer upgrades in place.
+Re-running the installer upgrades in place. It refuses to do that while the
+lab is running — replacing files underneath a live process shows up later as
+an ImportError in a notebook, and the running copy would keep the old code in
+memory anyway, so the fix would look like it had not worked. Close the Go2 Lab
+window first; from a terminal, `GO2_STOP_RUNNING=y` stops it for you.
+
+### Updating the coursework on a laptop
+
+`go2-lab` applies the same rules as the server's `go2-student.sh sync`, every
+launch: a notebook the student has not touched is replaced, one they have
+edited is left alone with the new version beside it as `<name>.updated.ipynb`,
+and files they made themselves are never looked at. It says what it did:
+
+```
+[go2] kept your 01_hello_dog.ipynb; the new one is 01_hello_dog.updated.ipynb
+```
+
+The comparison is against `.go2-seed` in the work folder — a copy of exactly
+what was last handed over. Without it there is no way to tell an edited file
+from an untouched one, which is why the old rule ("copy if absent") meant a
+fix never reached anyone who had already started.
 
 ### Why the local viewer is a browser page, not a native window
 

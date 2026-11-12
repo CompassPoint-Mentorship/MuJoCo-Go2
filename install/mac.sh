@@ -62,6 +62,67 @@ fi
 
 say "Go2 simulator installer  ($OS $ARCH, into $PREFIX)"
 
+# ------------------------------------------------- is the lab running now?
+# Upgrading underneath a running lab replaces files the running processes are
+# still reading. Python keeps what it has already imported, so nothing fails
+# at the moment of the install -- it fails twenty minutes later, in a
+# notebook, as an ImportError the student cannot possibly connect to this.
+#
+# Worse, it looks like it worked: the running lab keeps the OLD code in
+# memory, so whatever the student came here to fix is still broken.
+#
+# Note this runs BEFORE the 250 MB download, so stopping here costs nothing.
+running_lab() { pgrep -f "$VENV/bin" 2>/dev/null || true; }
+
+PIDS="$(running_lab)"
+if [ -n "$PIDS" ]; then
+  warn "The Go2 Lab is already running (pid $(echo "$PIDS" | tr '\n' ' '))."
+  echo "    Updating underneath it would leave the running lab half old and"
+  echo "    half new, and whatever you are updating to fix would still look"
+  echo "    broken, because the running copy stays in memory."
+  echo
+  ANS="${GO2_STOP_RUNNING:-}"
+  # This script is itself on stdin (curl | bash), so the answer has to come
+  # from the terminal directly or `read` would eat the rest of the script.
+  # Opening it is the only honest test -- /dev/tty can exist and still fail
+  # to open with no controlling terminal -- and the call is wrapped so that
+  # failure is silent rather than an alarming line about a missing device.
+  ask_tty() {
+    local ans
+    exec 3<>/dev/tty || return 1
+    printf '    Stop it and carry on? [y/N] ' >&3
+    read -r ans <&3 || ans=""
+    exec 3>&-
+    printf '%s' "$ans"
+  }
+  if [ -z "$ANS" ]; then
+    ANS="$(ask_tty 2>/dev/null || true)"
+    echo
+  fi
+  case "$ANS" in
+    y|Y|yes|YES|1)
+      # SIGTERM is the clean path: go2-lab turns it into the same shutdown
+      # Ctrl-C does, so JupyterLab and the simulator go down with it and no
+      # notebook is left half-saved.
+      echo "$PIDS" | xargs kill 2>/dev/null || true
+      for _ in 1 2 3 4 5 6 7 8 9 10; do
+        [ -z "$(running_lab)" ] && break
+        sleep 1
+      done
+      LEFT="$(running_lab)"
+      if [ -n "$LEFT" ]; then
+        echo "$LEFT" | xargs kill -9 2>/dev/null || true
+        sleep 1
+      fi
+      say "Stopped the running lab. Carrying on."
+      ;;
+    *)
+      die "Close the Go2 Lab window (or press Ctrl-C in it), then run this again.
+Nothing has been changed."
+      ;;
+  esac
+fi
+
 # ------------------------------------------------------------------------ uv
 UV="$(command -v uv || true)"
 if [ -z "$UV" ] && [ -x "$HOME/.local/bin/uv" ]; then UV="$HOME/.local/bin/uv"; fi

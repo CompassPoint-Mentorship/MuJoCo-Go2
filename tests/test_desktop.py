@@ -39,9 +39,70 @@ def test_seed_work_dir_never_overwrites_student_work(tmp_path):
     mine = work / "01_hello_dog.ipynb"
     mine.write_text("my own edits")
 
-    desktop.seed_work_dir(work)   # e.g. the student launches again tomorrow
+    notes = desktop.seed_work_dir(work)   # e.g. they launch again tomorrow
 
     assert mine.read_text() == "my own edits"
+    # ...and the fixed version arrives beside it rather than not at all.
+    new = work / "01_hello_dog.updated.ipynb"
+    assert new.exists()
+    assert new.read_bytes() == (desktop.COURSEWORK / "01_hello_dog.ipynb").read_bytes()
+    assert any("kept your" in n for n in notes)
+
+
+def test_seed_work_dir_updates_a_file_the_student_never_touched(tmp_path):
+    """The whole point: a fix upstream has to reach a laptop too."""
+    work = tmp_path / "work"
+    desktop.seed_work_dir(work)
+    dst = work / "01_hello_dog.ipynb"
+
+    # Pretend the course material changed under us.
+    seeded = work / desktop.SEED / "01_hello_dog.ipynb"
+    stale = b"the old version"
+    dst.write_bytes(stale)
+    seeded.write_bytes(stale)
+
+    notes = desktop.seed_work_dir(work)
+
+    assert dst.read_bytes() == (desktop.COURSEWORK / "01_hello_dog.ipynb").read_bytes()
+    assert not (work / "01_hello_dog.updated.ipynb").exists()
+    assert any("updated" in n for n in notes)
+
+
+def test_seed_work_dir_leaves_the_students_own_files_alone(tmp_path):
+    """Nothing is ever looked at unless the coursework folder names it."""
+    work = tmp_path / "work"
+    desktop.seed_work_dir(work)
+    mine = work / "my_experiment.py"
+    mine.write_text("dog.move(vx=9)")
+    notebook = work / "my notes.ipynb"
+    notebook.write_text("{}")
+
+    desktop.seed_work_dir(work)
+    desktop.seed_work_dir(work)
+
+    assert mine.read_text() == "dog.move(vx=9)"
+    assert notebook.read_text() == "{}"
+
+
+def test_seed_work_dir_is_quiet_when_nothing_changed(tmp_path):
+    work = tmp_path / "work"
+    assert desktop.seed_work_dir(work)            # first time: all added
+    assert desktop.seed_work_dir(work) == []      # second time: silence
+
+
+def test_seed_work_dir_protects_the_updated_copy_once_it_is_used(tmp_path):
+    work = tmp_path / "work"
+    desktop.seed_work_dir(work)
+    (work / "01_hello_dog.ipynb").write_text("my own edits")
+    desktop.seed_work_dir(work)
+
+    # The student starts working in the fixed copy we left them.
+    theirs = work / "01_hello_dog.updated.ipynb"
+    theirs.write_text("my work, in the new one")
+    notes = desktop.seed_work_dir(work)
+
+    assert theirs.read_text() == "my work, in the new one"
+    assert any("and your" in n for n in notes)
 
 
 def test_free_port_is_actually_free():
