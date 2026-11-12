@@ -22,6 +22,10 @@ services:
       GO2_SIM_URL: http://127.0.0.1:8399
     volumes:
       - ${STUDENT_WORK}:/home/student/work:rw
+      # Self-signed TLS, shared by every student. Generate with
+      # ./make-cert.sh; without it the lab falls back to HTTP and the
+      # microphone (voice recording) is blocked by the browser.
+      - ./tls:/etc/go2/tls:ro
     deploy:
       resources:
         reservations:

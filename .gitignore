@@ -16,3 +16,7 @@ MUJOCO_LOG.TXT
 # Hosted mode: per-student tokens/ports and their work directories
 deploy/students/
 student-work/
+
+# Self-signed TLS for the student labs: machine-specific, regenerate with
+# deploy/make-cert.sh
+deploy/tls/

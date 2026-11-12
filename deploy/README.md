@@ -83,6 +83,53 @@ This is not theoretical: it killed the service in testing, leaving the panel
 showing a stale frame while every notebook raised `ConnectionRefusedError`.
 `test_reset_and_render_under_concurrent_load` guards it.
 
+## HTTPS (needed for voice recording)
+
+Browsers only allow `getUserMedia` -- the microphone -- on a **secure
+context**: https, or localhost. Over plain http the record button in the
+viewer reports `recording needs a secure page` and nothing else breaks.
+
+A self-signed certificate is enough. Once the student clicks through the
+browser warning the origin is https, `isSecureContext` is true, and recording
+works:
+
+```bash
+cd deploy
+./make-cert.sh                  # covers every address this host answers on
+./go2-student.sh up alice       # restart to pick it up
+```
+
+Jupyter terminates TLS itself, so one certificate covers the lab, the proxy,
+the split page and the viewer. `go2-student.sh` prints `https://` links
+automatically once `deploy/tls/cert.pem` exists, and the containers fall back
+to HTTP if it does not.
+
+The certificate carries the LAN address, the tailnet address and the hostname
+as subject alternative names -- browsers ignore CN, and an IP must appear as
+an `IP:` entry or `https://192.168.1.215` will not match. Pass extra names or
+addresses as arguments if you need them.
+
+**The cost:** each student sees a browser warning once per machine and has to
+choose *Advanced -> Proceed*. `make-cert.sh` prints the SHA-256 fingerprint so
+they can check it matches rather than clicking blind. Teaching people to click
+through certificate warnings is a bad habit, so it is worth saying out loud
+that this one is expected and why.
+
+A real certificate needs a public domain and DNS, which is a lot of setup for
+a machine serving one local network. If you later want that without the
+warning, Cloudflare Tunnel or a Tailscale `*.ts.net` certificate both give a
+genuinely trusted name.
+
+## Bandwidth
+
+The panel polls JPEG frames. Defaults are 640x360 at 12 fps, about **320 KB/s
+per watching student**, and polling stops entirely while the browser tab is
+hidden -- students leave tabs open all day.
+
+That is a tenth of what 960x540 at 20 fps costs. On a LAN either is fine;
+over any remote link the defaults matter. Raise them with
+`--width/--height/--fps` on `go2.service` if you want a nicer picture.
+
 ## Resources
 
 Measured on a Ryzen 9 9950X + RTX 5090:

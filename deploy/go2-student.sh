@@ -16,6 +16,11 @@ WORKROOT="$ROOT/student-work"
 mkdir -p "$STUDENTS" "$WORKROOT"
 
 BASE_PORT=8400
+CERT_DIR="$DEPLOY/tls"
+
+# https only when a certificate is actually mounted, so the printed links
+# always match what the container is serving.
+scheme() { [ -r "$CERT_DIR/cert.pem" ] && echo https || echo http; }
 
 # Prefer the tailnet address, fall back to the first LAN address, so the
 # printed link works from wherever the students are.
@@ -51,8 +56,8 @@ links_for() {
   # shellcheck disable=SC1090
   ( . "$1"
     host_ips | while IFS=$'\t' read -r ip kind; do
-      printf '  %-9s http://%s:%s/proxy/%s/split?token=%s\n' \
-        "($kind)" "$ip" "$LAB_PORT" "${GO2_SIM_PORT:-8399}" "$LAB_TOKEN"
+      printf '  %-9s %s://%s:%s/proxy/%s/split?token=%s\n' \
+        "($kind)" "$(scheme)" "$ip" "$LAB_PORT" "${GO2_SIM_PORT:-8399}" "$LAB_TOKEN"
     done )
 }
 
@@ -61,14 +66,14 @@ lab_links_for() {
   # shellcheck disable=SC1090
   ( . "$1"
     host_ips | while IFS=$'\t' read -r ip kind; do
-      printf '  %-9s http://%s:%s/lab?token=%s\n' "($kind)" "$ip" "$LAB_PORT" "$LAB_TOKEN"
+      printf '  %-9s %s://%s:%s/lab?token=%s\n' "($kind)" "$(scheme)" "$ip" "$LAB_PORT" "$LAB_TOKEN"
     done )
 }
 
 # Single best-guess link, for the compact list view.
 link_for() {
   # shellcheck disable=SC1090
-  ( . "$1"; printf 'http://%s:%s/lab?token=%s\n' "$(host_ip)" "$LAB_PORT" "$LAB_TOKEN" )
+  ( . "$1"; printf '%s://%s:%s/lab?token=%s\n' "$(scheme)" "$(host_ip)" "$LAB_PORT" "$LAB_TOKEN" )
 }
 
 usage() { sed -n '3,9p' "$0"; exit 1; }
@@ -154,7 +159,7 @@ list)
       printf '%-14s %-6s %-26s %s\n' "$STUDENT" "$LAB_PORT" "${st:-stopped}" "$LAB_TOKEN" )
   done
   echo
-  echo "Links are http://<address>:<port>/proxy/8399/split?token=<token> on any of:"
+  echo "Links are $(scheme)://<address>:<port>/proxy/8399/split?token=<token> on any of:"
   host_ips | while IFS=$'\t' read -r ip kind; do
     printf '  %s\t(%s)\n' "$ip" "$kind"
   done

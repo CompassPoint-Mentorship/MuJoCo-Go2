@@ -79,14 +79,24 @@ _PAGE = """<!doctype html>
 // endpoint. jupyter-server-proxy buffers multipart/x-mixed-replace, so a
 // stream served through it never reaches the browser; individual requests
 // proxy fine. Double-buffering through a preload Image avoids flicker.
-const FPS = 20;
+// Polling a 960x540 JPEG at 20 fps is about 1 MB/s per viewer. That is free
+// on a LAN and painful over any WAN link, and most of it is wasted on tabs
+// nobody is looking at -- students leave them open all day. So: a modest
+// frame rate, and stop entirely while the tab is hidden.
+const FPS = 12;
 const view = document.getElementById('view');
+let pending = false;
 function nextFrame() {
+  if (pending) return;
+  if (document.hidden) { pending = true; return; }   // resumed on visibilitychange
   const img = new Image();
   img.onload = () => { view.src = img.src; setTimeout(nextFrame, 1000 / FPS); };
   img.onerror = () => setTimeout(nextFrame, 500);
   img.src = 'frame?t=' + Date.now();
 }
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && pending) { pending = false; nextFrame(); }
+});
 nextFrame();
 
 const send = q => fetch('cmd?' + q);

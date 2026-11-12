@@ -45,8 +45,23 @@ except Exception:
   sleep 1
 done
 
+# Serve HTTPS when a certificate is mounted. Browsers only allow
+# getUserMedia -- the microphone, for recording a student's voice -- on a
+# secure context, and a self-signed certificate is enough for that once the
+# student clicks through the warning. Without a cert we fall back to HTTP and
+# everything except recording still works.
+TLS_ARGS=()
+if [ -r /etc/go2/tls/cert.pem ] && [ -r /etc/go2/tls/key.pem ]; then
+  TLS_ARGS=(--ServerApp.certfile=/etc/go2/tls/cert.pem
+            --ServerApp.keyfile=/etc/go2/tls/key.pem)
+  echo "serving HTTPS (self-signed certificate)"
+else
+  echo "no certificate at /etc/go2/tls -- serving HTTP; microphone recording will be blocked" >&2
+fi
+
 exec jupyter lab \
   --ip=0.0.0.0 --port=8888 --no-browser \
   --ServerApp.root_dir=/home/student/work \
   --ServerApp.token="${JUPYTER_TOKEN:-}" \
-  --ServerApp.password=
+  --ServerApp.password= \
+  "${TLS_ARGS[@]}"

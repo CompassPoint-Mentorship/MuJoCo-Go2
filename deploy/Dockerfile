@@ -52,8 +52,11 @@ WORKDIR /home/student/work
 
 EXPOSE 8888
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD curl -fsS "http://localhost:8888/lab" >/dev/null || exit 1
+# -k because the certificate is self-signed; this probe is inside the
+# container, so there is nothing to authenticate against anyway.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=3 \
+    CMD curl -fsSk "https://localhost:8888/lab" >/dev/null \
+     || curl -fsS "http://localhost:8888/lab" >/dev/null || exit 1
 
 # The simulator runs as its own service; notebooks are clients of it.
 # jupyter-server-proxy exposes it at /proxy/8399/, same-origin and behind the

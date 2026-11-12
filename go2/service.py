@@ -34,9 +34,12 @@ def main() -> None:
     ap.add_argument("--host", default="127.0.0.1",
                     help="default 127.0.0.1: reached through jupyter-server-proxy")
     ap.add_argument("--port", type=int, default=8399)
-    ap.add_argument("--width", type=int, default=960)
-    ap.add_argument("--height", type=int, default=540)
-    ap.add_argument("--fps", type=int, default=20)
+    # 640x360 at 12 fps is roughly a tenth of the bandwidth of 960x540 at 20,
+    # and the difference is hard to see in a panel beside a notebook. Raise
+    # them if you are on a LAN and want a nicer picture.
+    ap.add_argument("--width", type=int, default=640)
+    ap.add_argument("--height", type=int, default=360)
+    ap.add_argument("--fps", type=int, default=12)
     ap.add_argument("--camera", default="chase")
     ap.add_argument("--scene", default=None)
     serve(**vars(ap.parse_args()))
