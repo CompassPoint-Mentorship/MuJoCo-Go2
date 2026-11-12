@@ -12,3 +12,7 @@ dist/
 *.mp4
 *.npy
 MUJOCO_LOG.TXT
+
+# Hosted mode: per-student tokens/ports and their work directories
+deploy/students/
+student-work/

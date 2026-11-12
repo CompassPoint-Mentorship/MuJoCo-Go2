@@ -16,12 +16,41 @@ import from go2.backends.
 
 from __future__ import annotations
 
+import os
 import pathlib
 import time
 
 import numpy as np
 
 from .backends.base import Backend, Pose, Velocity
+
+# Real-robot mode is OFF unless the environment explicitly turns it on.
+#
+# Why: a hosted notebook can be opened from anywhere, and Go2(sim=False) drives
+# a real 15 kg robot that may have nobody standing next to it. Simulation is
+# always safe; hardware is not. So hardware is opt-in, per deployment, by
+# someone who knows a human is present with the remote in hand.
+#
+#   export GO2_ALLOW_REAL=1      # on a machine where that is true
+#
+# Shared teaching servers simply never set it.
+_ALLOW_REAL_ENV = "GO2_ALLOW_REAL"
+
+_REAL_DISABLED = """Real-robot mode is disabled on this machine.
+
+Go2(sim=False) drives a physical robot. It is switched off here because this
+looks like a shared or hosted environment, where code can be run by someone
+who is not in the room with the dog.
+
+To work on the simulator instead:
+
+    dog = Go2(sim=True)
+
+If you are physically with the robot, have the remote in hand as an emergency
+stop, and the slot is booked, an operator can enable it with:
+
+    export {env}=1
+"""
 
 # Commands are clamped to these before reaching any backend, so a typo in an
 # assignment cannot ask the real dog for something alarming.
@@ -51,6 +80,8 @@ class Go2:
             ip:       Robot address. Real robot only.
         """
         self.sim = bool(sim)
+        if not self.sim and os.environ.get(_ALLOW_REAL_ENV, "") not in ("1", "true", "yes"):
+            raise PermissionError(_REAL_DISABLED.format(env=_ALLOW_REAL_ENV))
         if self.sim:
             from .backends.sim import SimBackend
 

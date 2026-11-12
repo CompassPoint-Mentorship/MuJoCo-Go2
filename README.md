@@ -19,6 +19,21 @@ image = dog.camera()       # (480, 640, 3) uint8
 
 Students write their code once. Moving to the real dog changes one argument.
 
+## Two ways to use it
+
+**Hosted (recommended for a class)** — the student installs nothing. They open a
+link and get an editor, a terminal and the dog rendering inline in notebook
+cells, all running on a shared server. See [deploy/README.md](deploy/README.md).
+
+```bash
+cd deploy
+./go2-student.sh create alice
+./go2-student.sh up     alice     # prints the link to send them
+```
+
+**Local install** — for working offline, or on your own machine. The rest of
+this file covers that.
+
 ## Install
 
 Works natively on **macOS (Apple Silicon or Intel)** and **Ubuntu**. CPU only —
@@ -158,10 +173,13 @@ go2/
     sim.py            MuJoCo backend
     real.py           physical Go2 Pro — not implemented yet (step 2)
   web.py              browser viewer: MJPEG stream + drive controls
+  notebook.py         show()/live()/drive() -- renders inline in Jupyter
   assets/
     arena.xml         our scene
     go2.xml, assets/  Go2 model vendored from MuJoCo Menagerie (BSD-3, Unitree)
 examples/             runnable student examples
+notebooks/            starter notebook, copied to each student on create
+deploy/               hosted mode: Dockerfile, compose, go2-student.sh
 tests/                pytest suite, headless
 ```
 
@@ -177,8 +195,8 @@ kept as `LICENSE` and `UPSTREAM_README.md` for diffing on upgrade.
 - [ ] **Step 4** — assignments and student setup guide
 - [x] **Step 5a** — browser viewer (`python -m go2.web`), so the sim can be
       watched and driven from any machine with no local install
-- [ ] **Step 5b** *(optional)* — package that as one container per student on a
-      shared GPU box, the way the Isaac Sim deployment works
+- [x] **Step 5b** — hosted mode: one JupyterLab container per student, a link
+      each, nothing installed on their machine (`deploy/`)
 
 ### About the real robot (step 2)
 
@@ -195,6 +213,12 @@ Our dog is a **Go2 Pro**, which matters:
   slot, not shared infrastructure.
 
 See `go2/backends/real.py` for the full plan and gotchas.
+
+**Real-robot mode is off unless `GO2_ALLOW_REAL=1`.** `Go2(sim=False)` raises
+`PermissionError` without it, and the hosted containers hard-set it to `0`. A
+hosted notebook can be opened from anywhere, and the real backend drives a
+15 kg robot that may have nobody next to it. Hardware is opt-in, on a machine
+where a human is present with the remote in hand.
 
 ## Tests
 

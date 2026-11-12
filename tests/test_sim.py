@@ -100,7 +100,16 @@ def test_context_manager_closes_cleanly():
     assert not d._backend._running
 
 
-def test_real_backend_fails_with_a_clear_message():
+def test_real_mode_is_disabled_by_default(monkeypatch):
+    """Hardware must be opt-in: a hosted notebook must not reach the robot."""
+    monkeypatch.delenv("GO2_ALLOW_REAL", raising=False)
+    with pytest.raises(PermissionError, match="disabled on this machine"):
+        Go2(sim=False)
+
+
+def test_real_backend_fails_with_a_clear_message(monkeypatch):
+    """With the interlock lifted, it still fails -- step 2 is not built yet."""
+    monkeypatch.setenv("GO2_ALLOW_REAL", "1")
     with pytest.raises(NotImplementedError, match="step 2"):
         Go2(sim=False)
 
