@@ -26,6 +26,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from .api import Go2
+from .build import build_id
 from .audio import MAX_CLIP_BYTES
 
 _BOUNDARY = "go2frame"
@@ -48,6 +49,7 @@ _PAGE = """<!doctype html>
   #keys { opacity:.75 }
   kbd { background:#222; border:1px solid #444; border-radius:4px; padding:1px 6px; }
   #pose { font-variant-numeric: tabular-nums; }
+  #build { opacity:.35; font-size:11px; }
   .row { display:flex; gap:8px; flex-wrap:wrap; justify-content:center; }
   button { background:#222; color:#eee; border:1px solid #444; border-radius:6px;
            padding:8px 14px; font:inherit; cursor:pointer; }
@@ -75,6 +77,9 @@ _PAGE = """<!doctype html>
   <audio id="speaker" hidden></audio>
   <div id="keys">drive with <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>,
     <kbd>space</kbd> to stop &mdash; hold to move</div>
+  <!-- The first question when a student reports something odd is which code
+       they are running, and they are looking at this panel when they ask. -->
+  <div id="build">build __BUILD__</div>
 <script>
 // Frames are POLLED one at a time rather than taken from the MJPEG /stream
 // endpoint. jupyter-server-proxy buffers multipart/x-mixed-replace, so a
@@ -298,6 +303,11 @@ def _audio_store(dog):
     return dog._backend.audio  # noqa: SLF001 - the service owns its backend
 
 
+def _panel_page() -> str:
+    """The viewer panel, stamped with the build it is being served by."""
+    return _PAGE.replace("__BUILD__", build_id())
+
+
 def _split_page(query: str) -> str:
     """Lab on the left, the live dog on the right, in one page.
 
@@ -396,7 +406,7 @@ def _handler(dog: Go2, frames: _Frames):
         def do_GET(self) -> None:
             url = urlparse(self.path)
             if url.path in ("", "/"):
-                self._send(_PAGE.encode(), "text/html; charset=utf-8")
+                self._send(_panel_page().encode(), "text/html; charset=utf-8")
             elif url.path == "/pose":
                 p = dog.pose()
                 body = f'{{"x":{p.x:.4f},"y":{p.y:.4f},"yaw":{p.yaw:.4f}}}'.encode()

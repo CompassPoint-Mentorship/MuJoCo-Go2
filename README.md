@@ -149,6 +149,30 @@ a per-launch token and nobody is going to retype it:
   the launcher turns into the same shutdown Ctrl-C does, so JupyterLab and the
   simulator go with it rather than lingering on their ports.
 
+### Which build is this?
+
+There is no build server: the package is built on the student's own machine
+from a tarball of whatever `main` held at that moment, so its version number
+is the same string for every build ever made. The installer therefore writes
+`go2/_build.py` into the installed copy — a timestamp to the second, and a
+short hash of the exact tarball it built from. The timestamp orders builds;
+the hash identifies the code, so two students who installed minutes apart from
+the same commit carry the same hash and one who installed before a fix does
+not.
+
+```console
+$ go2-lab --version
+go2-lab build 20261112-192953Z
+  source  b3ea24353093  from https://github.com/.../main.tar.gz
+  python  3.12.16  (/Users/myao/.go2/venv/bin/python)
+  on      Darwin 27.0.0 arm64
+```
+
+It is also on the launch banner, at the top of `--check`, and dimly at the
+bottom of the viewer panel — where a student is already looking when they ask
+for help. A source checkout has no stamp and says `source checkout` rather
+than inventing one.
+
 ### Known constraints
 
 - **Intel Macs** get MuJoCo 3.x: 4.x publishes macOS wheels for Apple Silicon

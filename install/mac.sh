@@ -197,6 +197,31 @@ fi
      --reinstall-package go2 "${INSTALL_ARGS[@]}" \
   || die "could not install the simulator. The messages above say why."
 
+# --------------------------------------------------------------- build stamp
+# Nothing else records which code a student is running: the package is built
+# on their machine from a branch tarball, so its version number is the same
+# string for every build ever made. The timestamp orders builds and the hash
+# of the exact tarball identifies the code.
+STAMP="$(date -u +%Y%m%d-%H%M%S)Z"
+if command -v shasum >/dev/null 2>&1; then
+  SRC_SHA="$(shasum -a 256 "$TMP/go2-source.tar.gz" | cut -c1-12)"
+elif command -v sha256sum >/dev/null 2>&1; then
+  SRC_SHA="$(sha256sum "$TMP/go2-source.tar.gz" | cut -c1-12)"
+else
+  SRC_SHA=""
+fi
+# -I, or this resolves `go2` from the current directory: run the installer
+# from a clone and the stamp lands in the clone instead of the install.
+SITE="$("$VENV/bin/python" -I -c 'import go2, pathlib; print(pathlib.Path(go2.__file__).parent)')"
+[ -d "$SITE" ] || die "could not find the installed package to stamp"
+cat > "$SITE/_build.py" <<BUILDPY
+# Written by the installer at install time. Not in git, not in the tarball.
+BUILD = "$STAMP"
+SOURCE = "$TARBALL"
+SOURCE_SHA = "$SRC_SHA"
+BUILDPY
+say "Build $STAMP${SRC_SHA:+ ($SRC_SHA)}"
+
 # ------------------------------------------------------------------ launcher
 # A .command file rather than a bare script: double-clicking one opens a
 # Terminal window, so the student can read what happened and press Ctrl-C to

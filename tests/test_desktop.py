@@ -304,3 +304,63 @@ def test_say_again_replays_through_the_service():
         server.shutdown()
         server.server_close()
         dog.close()
+
+
+# ---------------------------------------------------------------------------
+# which build is this
+# ---------------------------------------------------------------------------
+
+def test_build_id_says_so_when_there_is_no_stamp():
+    """A source checkout must not invent a build number."""
+    from go2 import build
+
+    info = build.build_info()
+    if info["sha"]:            # running from an installed copy
+        assert info["build"] and info["build"] != build.UNKNOWN
+    else:
+        assert build.build_id() == build.UNKNOWN
+
+
+def test_build_id_reads_the_stamp_the_installer_writes(tmp_path, monkeypatch):
+    """The exact file install/mac.sh writes, parsed the way we claim to."""
+    import importlib
+    import sys as _sys
+
+    pkg = tmp_path / "go2"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("")
+    (pkg / "build.py").write_text((desktop.PKG / "build.py").read_text())
+    (pkg / "_build.py").write_text(
+        '# Written by the installer at install time.\n'
+        'BUILD = "20261112-192345Z"\n'
+        'SOURCE = "https://example/main.tar.gz"\n'
+        'SOURCE_SHA = "abc123def456"\n'
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    for name in [n for n in _sys.modules if n == "go2" or n.startswith("go2.")]:
+        monkeypatch.delitem(_sys.modules, name, raising=False)
+
+    build = importlib.import_module("go2.build")
+    assert build.build_info()["build"] == "20261112-192345Z"
+    assert build.build_id() == "20261112-192345Z (abc123def456)"
+    # Sorts chronologically as a plain string, which is the point of the format.
+    assert "20261112-192345Z" < "20261113-010000Z"
+
+
+def test_the_service_does_not_import_from_the_current_directory():
+    """A `go2` folder in the launch directory must not shadow the install.
+
+    This is how the viewer ended up reporting a different build from the
+    launcher that started it.
+    """
+    import inspect
+
+    src = inspect.getsource(desktop.run_lab)
+    assert '"-P"' in src
+    if sys.version_info >= (3, 11):
+        out = subprocess.run(
+            [sys.executable, "-P", "-c", "import sys; print(sys.path[0])"],
+            capture_output=True, text=True, cwd="/tmp",
+        )
+        assert out.returncode == 0, out.stderr
+        assert out.stdout.strip() != "/tmp"

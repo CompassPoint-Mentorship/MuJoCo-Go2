@@ -43,6 +43,8 @@ import urllib.error
 import urllib.request
 import webbrowser
 
+from .build import build_id, build_info
+
 PKG = pathlib.Path(__file__).resolve().parent
 COURSEWORK = PKG / "coursework"
 
@@ -389,8 +391,14 @@ def run_lab(args: argparse.Namespace) -> int:
 
     child_env = {**os.environ, **_render_backend_env()}
 
+    # -P keeps the current directory off sys.path. Without it the service
+    # imports whatever `go2` happens to sit in the folder the lab was started
+    # from -- so a mentor launching from a clone ran the clone in the viewer
+    # and the installed copy in the launcher, which is the worst of both and
+    # reports the wrong build. The flag arrived in 3.11; we still run on 3.10.
+    isolate = ["-P"] if sys.version_info >= (3, 11) else []
     sim_cmd = [
-        sys.executable, "-m", "go2.service",
+        sys.executable, *isolate, "-m", "go2.service",
         "--host", "127.0.0.1", "--port", str(sim_port),
         "--width", str(args.width), "--height", str(args.height),
         "--fps", str(args.fps),
@@ -445,6 +453,7 @@ def run_lab(args: argparse.Namespace) -> int:
         print()
         print("  " + "-" * 68)
         print("  Go2 Lab is running. Keep this window open.")
+        print(f"  build {build_id()}")
         print()
         print(f"    lab        {url}")
         print(f"    notebooks  {work}")
@@ -493,6 +502,7 @@ def run_check() -> int:
         print(f"  [{'ok' if good else 'FAIL'}] {label}{(': ' + detail) if detail else ''}")
 
     print("Go2 simulator self-test\n")
+    print(f"  build      {build_id()}")
     print(f"  python     {sys.version.split()[0]}  ({sys.executable})")
     print(f"  platform   {platform.system()} {platform.release()} {platform.machine()}")
     print()
@@ -599,6 +609,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     ap.add_argument("--check", action="store_true",
                     help="self-test instead of starting; prints what works")
+    ap.add_argument("--version", action="store_true",
+                    help="print which build this is and exit")
     ap.add_argument("--work", default=None,
                     help=f"notebook folder (default: {default_work_dir()})")
     ap.add_argument("--port", type=int, default=0, help="JupyterLab port (default: a free one)")
@@ -610,6 +622,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--no-browser", action="store_true", help="do not open a browser")
     args = ap.parse_args(argv)
 
+    if args.version:
+        info = build_info()
+        print(f"go2-lab build {info['build']}")
+        if info["sha"]:
+            print(f"  source  {info['sha']}  from {info['source']}")
+        print(f"  python  {sys.version.split()[0]}  ({sys.executable})")
+        print(f"  on      {platform.system()} {platform.release()} {platform.machine()}")
+        return 0
     if args.check:
         return run_check()
     return run_lab(args)

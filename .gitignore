@@ -23,3 +23,5 @@ deploy/tls/
 
 # Built by install/make-zip.sh; attach it to a release rather than commit it.
 install/Go2-Lab-macOS.zip
+# Written by the installer on the machine it installs to.
+go2/_build.py
