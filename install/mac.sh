@@ -27,6 +27,8 @@ TARBALL="${GO2_TARBALL:-https://github.com/${REPO}/archive/refs/heads/${BRANCH}.
 PREFIX="${GO2_PREFIX:-$HOME/.go2}"
 VENV="$PREFIX/venv"
 PYVER="${GO2_PYTHON:-3.12}"
+# Escape hatch for a Mac we have not seen: force one MuJoCo version.
+GO2_MUJOCO="${GO2_MUJOCO:-}"
 
 say()  { printf '\033[1m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[33m!!\033[0m  %s\n' "$*" >&2; }
@@ -69,12 +71,22 @@ Quit Terminal, right-click Terminal in Finder, choose Get Info, untick
   fi
 fi
 
-# MuJoCo 4 ships macOS wheels for Apple Silicon only. Intel Macs stay on the
-# 3.3 line, which still has x86_64 wheels and everything this project uses.
+# MuJoCo stopped publishing macOS x86_64 wheels after 3.10.0: 3.11 onward is
+# Apple Silicon only on the Mac, and 4.x moved the binary into mujoco-core,
+# which is arm64-only too. So an Intel Mac has exactly one ceiling, and it is
+# 3.10 -- not "<4", which resolves to 3.17 and has no wheel for this machine.
+#
+# Getting that wrong is not a slow install, it is a FAILED one: with no wheel,
+# pip falls back to building MuJoCo from its sdist, that build wants a
+# prebuilt C library via MUJOCO_PATH, and the student gets sixty lines of
+# setuptools traceback ending in a variable they have never heard of.
 MUJOCO_SPEC=""
-if [ "$OS" = "Darwin" ] && [ "$ARCH" = "x86_64" ]; then
-  MUJOCO_SPEC="mujoco>=3.3,<4"
-  warn "Intel Mac: pinning MuJoCo 3.x (4.x is Apple Silicon only). Everything works; it is just slower."
+if [ -n "$GO2_MUJOCO" ]; then
+  MUJOCO_SPEC="$GO2_MUJOCO"
+  say "Using the MuJoCo version you asked for: $MUJOCO_SPEC"
+elif [ "$OS" = "Darwin" ] && [ "$ARCH" = "x86_64" ]; then
+  MUJOCO_SPEC="mujoco>=3.3,<3.11"
+  warn "Intel Mac: pinning MuJoCo 3.10 (the last with Intel wheels). Everything works; it is just slower."
 fi
 
 say "Go2 simulator installer  ($OS $ARCH, into $PREFIX)"
@@ -193,9 +205,38 @@ INSTALL_ARGS=("go2[lab] @ ${TMP}/go2-source.tar.gz")
 if [ -n "$MUJOCO_SPEC" ]; then
   INSTALL_ARGS+=("$MUJOCO_SPEC")
 fi
-"$UV" pip install --python "$VENV/bin/python" --upgrade \
-     --reinstall-package go2 "${INSTALL_ARGS[@]}" \
-  || die "could not install the simulator. The messages above say why."
+
+# Never build MuJoCo from source. There is no supported way to do it on a
+# student laptop -- it needs a prebuilt C library pointed at by MUJOCO_PATH --
+# so a source fallback is never the right answer, it is just a confusing way
+# to fail. Refusing it makes the resolver step BACK to a version that does
+# ship a wheel for this machine, which is the behaviour we actually want and
+# keeps working when the next release drops a platform. go2 itself is a
+# source tarball, so this is named per package rather than :all:.
+NO_SOURCE_BUILDS=(--only-binary mujoco --only-binary mujoco-core
+                  --only-binary mujoco-studio)
+
+INSTALL_LOG="$TMP/install.log"
+if ! "$UV" pip install --python "$VENV/bin/python" --upgrade \
+       --reinstall-package go2 "${NO_SOURCE_BUILDS[@]}" "${INSTALL_ARGS[@]}" \
+       2>&1 | tee "$INSTALL_LOG"; then
+  # Translate the one failure we know is unreadable. Everything else still
+  # gets "the messages above say why", which is honest.
+  if grep -q 'MUJOCO_PATH\|Failed to build .mujoco' "$INSTALL_LOG" 2>/dev/null; then
+    die "MuJoCo has no ready-made package for this Mac ($ARCH), so the installer
+tried to build it from source, which cannot work on a laptop.
+
+This is our bug, not anything you did. Please send your mentor:
+
+    the line above that starts with 'Failed to build'
+    this Mac's chip (Apple menu > About This Mac)
+
+As a workaround, an older MuJoCo usually has a package for this machine:
+
+    GO2_MUJOCO='mujoco==3.10.0' bash mac.sh"
+  fi
+  die "could not install the simulator. The messages above say why."
+fi
 
 # --------------------------------------------------------------- build stamp
 # Nothing else records which code a student is running: the package is built

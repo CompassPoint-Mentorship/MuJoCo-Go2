@@ -212,9 +212,13 @@ than inventing one.
 
 ### Known constraints
 
-- **Intel Macs** get MuJoCo 3.x: 4.x publishes macOS wheels for Apple Silicon
-  only. The installer detects this and pins accordingly. Everything works; it
-  is slower.
+- **Intel Macs** get MuJoCo 3.10 — the last release with x86_64 macOS wheels.
+  3.11 onward is Apple Silicon only on the Mac, and 4.x moved the binary into
+  `mujoco-core`, which is arm64 only. The installer reads the architecture and
+  pins accordingly, so a 2019 Intel Mac runs the whole lab; it is slower.
+  It never falls back to building MuJoCo from source — there is no supported
+  way to do that on a laptop — so it steps back to a version with a wheel
+  instead.
 - **macOS 11+** — that is MuJoCo's own floor.
 - The install pulls about 250 MB the first time, Python included.
 
