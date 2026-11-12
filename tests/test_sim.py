@@ -167,3 +167,31 @@ def test_rendering_is_safe_from_two_threads(dog):
         t.join(timeout=30)
 
     assert not errors, f"rendering failed off-thread: {errors[0]!r}"
+
+
+def test_frame_endpoint_serves_a_jpeg(dog):
+    """Single-frame polling is what works behind jupyter-server-proxy.
+
+    Regression: the page used an MJPEG /stream, which the proxy buffers, so
+    the image never loaded inside JupyterLab.
+    """
+    pytest.importorskip("PIL")
+    import urllib.request
+
+    from go2.web import serve_background
+
+    server, frames = serve_background(dog, host="127.0.0.1", port=8321, fps=20)
+    try:
+        for _ in range(60):
+            if frames.latest:
+                break
+            dog.wait(0.05)
+        with urllib.request.urlopen("http://127.0.0.1:8321/frame", timeout=5) as r:
+            assert r.status == 200
+            assert r.headers["Content-Type"] == "image/jpeg"
+            body = r.read()
+        assert body[:2] == b"\xff\xd8", "not a JPEG"
+    finally:
+        frames.stop()
+        server.shutdown()
+        server.server_close()

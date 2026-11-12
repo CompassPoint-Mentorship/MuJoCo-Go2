@@ -34,6 +34,10 @@ _PAGE = """<!doctype html>
 <head>
 <meta charset="utf-8"/>
 <title>Go2 simulator</title>
+<!-- URLs below are RELATIVE on purpose. This page is served both at / and
+     under a prefix (jupyter-server-proxy mounts it at /proxy/<port>/).
+     An absolute "/stream" would resolve against the Jupyter root there and
+     the video would silently fail to load. -->
 <style>
   :root { color-scheme: dark; }
   body { margin:0; background:#111; color:#eee;
@@ -50,7 +54,7 @@ _PAGE = """<!doctype html>
 </style>
 </head>
 <body>
-  <img id="view" src="/stream" alt="simulator view"/>
+  <img id="view" alt="simulator view"/>
   <div id="pose">pose: --</div>
   <div class="row">
     <button data-cmd="vx=0.4">forward</button>
@@ -64,7 +68,21 @@ _PAGE = """<!doctype html>
   <div id="keys">drive with <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>,
     <kbd>space</kbd> to stop &mdash; hold to move</div>
 <script>
-const send = q => fetch('/cmd?' + q);
+// Frames are POLLED one at a time rather than taken from the MJPEG /stream
+// endpoint. jupyter-server-proxy buffers multipart/x-mixed-replace, so a
+// stream served through it never reaches the browser; individual requests
+// proxy fine. Double-buffering through a preload Image avoids flicker.
+const FPS = 20;
+const view = document.getElementById('view');
+function nextFrame() {
+  const img = new Image();
+  img.onload = () => { view.src = img.src; setTimeout(nextFrame, 1000 / FPS); };
+  img.onerror = () => setTimeout(nextFrame, 500);
+  img.src = 'frame?t=' + Date.now();
+}
+nextFrame();
+
+const send = q => fetch('cmd?' + q);
 document.querySelectorAll('button').forEach(b =>
   b.onclick = () => send(b.dataset.cmd));
 
@@ -85,7 +103,7 @@ addEventListener('keyup', e => {
 });
 setInterval(async () => {
   try {
-    const p = await (await fetch('/pose')).json();
+    const p = await (await fetch('pose')).json();
     document.getElementById('pose').textContent =
       `pose:  x ${p.x.toFixed(2)}   y ${p.y.toFixed(2)}   yaw ${p.yaw.toFixed(2)}`;
   } catch (_) {}
@@ -149,7 +167,7 @@ def _handler(dog: Go2, frames: _Frames):
 
         def do_GET(self) -> None:
             url = urlparse(self.path)
-            if url.path == "/":
+            if url.path in ("", "/"):
                 self._send(_PAGE.encode(), "text/html; charset=utf-8")
             elif url.path == "/pose":
                 p = dog.pose()
@@ -158,7 +176,15 @@ def _handler(dog: Go2, frames: _Frames):
             elif url.path == "/cmd":
                 self._command(parse_qs(url.query))
                 self._send(b"ok", "text/plain")
+            elif url.path == "/frame":
+                jpeg = frames.latest
+                if jpeg is None:
+                    self._send(b"not ready", "text/plain", 503)
+                else:
+                    self._send(jpeg, "image/jpeg")
             elif url.path == "/stream":
+                # Kept for direct use (curl, VLC, a plain browser tab). Do not
+                # rely on it behind a proxy -- see the note in _PAGE.
                 self._stream()
             else:
                 self._send(b"not found", "text/plain", 404)
