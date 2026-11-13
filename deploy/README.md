@@ -154,7 +154,7 @@ the split page and the viewer. `go2-student.sh` prints `https://` links
 automatically once `deploy/tls/cert.pem` exists, and the containers fall back
 to HTTP if it does not.
 
-The certificate carries the LAN address, the tailnet address and the hostname
+The certificate carries every address this host answers on, and its hostname,
 as subject alternative names -- browsers ignore CN, and an IP must appear as
 an `IP:` entry or `https://192.168.1.215` will not match. Pass extra names or
 addresses as arguments if you need them.
@@ -224,8 +224,8 @@ each other, but note:
 
 - The token is the only authentication. Anyone with the link has that
   student's environment. Rotate by editing `LAB_TOKEN` and restarting.
-- Ports bind all interfaces. Reach them over the tailnet, or restrict with
-  ufw, exactly as for the Isaac Sim viewer.
+- Ports bind all interfaces. Reach them over your own private network, or
+  restrict with ufw, exactly as for the Isaac Sim viewer.
 - Students can `pip install` inside their own container. That is intentional,
   and it cannot affect anyone else.
 

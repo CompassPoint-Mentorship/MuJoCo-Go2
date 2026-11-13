@@ -41,12 +41,6 @@ services:
       # all but name; it is the reason this container is not a security
       # boundary and must not be exposed to anyone but the gateway.
       - /var/run/docker.sock:/var/run/docker.sock
-      # So `tailscale ip` works and the tailnet link is offered alongside the
-      # LAN one. The socket is where it asks, and the CLI is a static binary,
-      # so borrowing the host's copy beats adding another apt repository to
-      # the image. Without both, the console silently offers LAN links only.
-      - /var/run/tailscale:/var/run/tailscale:ro
-      - /usr/bin/tailscale:/usr/bin/tailscale:ro
 
     env_file:
       - ../.env

@@ -373,3 +373,27 @@ def test_assets_are_versioned_so_a_cdn_cannot_pin_them(client):
     r = client.get(f"/static/style.css?v={versions.pop()}")
     assert r.status_code == 200
     assert "max-age" in r.headers.get("cache-control", "")
+
+
+def test_private_network_addresses_never_reach_a_browser(client, monkeypatch):
+    """A link on the private overlay is for a mentor at a terminal.
+
+    `go2-student.sh link` still prints it; this app must not put it on a page
+    a student opens, and the repository this code lives in is public.
+    """
+    from classroom import db
+
+    db.add(client.settings.db_path, slug="ada", display="Ada", email=None,
+           created_by="t")
+    monkeypatch.setattr(labs.Labs, "info", lambda self, slug: labs.Lab(
+        slug=slug, port=8400, token="t", work_dir="/tmp", status="Up 1 minute"))
+    monkeypatch.setattr(labs.Labs, "_run", lambda self, cmd, slug, check=True: (
+        "  (tailnet) https://100.64.1.2:8400/proxy/8399/split?token=t\n"
+        "  (lan)     https://192.168.1.9:8400/proxy/8399/split?token=t\n"))
+
+    sign_in_as(client, kind="student", name="Ada", slug="ada")
+    page = client.get("/student").text
+
+    assert "192.168.1.9" in page, "the usable link should still be offered"
+    assert "100.64.1.2" not in page
+    assert "tailnet" not in page.lower()

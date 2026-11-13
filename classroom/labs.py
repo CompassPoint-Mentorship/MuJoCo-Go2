@@ -100,16 +100,24 @@ class Labs:
             return "unknown"
         return (out.stdout.strip().splitlines() or ["stopped"])[0]
 
+    # Addresses on the private overlay network are for a mentor at a
+    # terminal, not for a web page. `go2-student.sh link` still prints them;
+    # this app does not put them in front of a browser, and the repository
+    # this code lives in is public.
+    PRIVATE_KINDS = frozenset({"tailnet", "vpn"})
+
     def links(self, slug: str) -> list[tuple[str, str]]:
         """The student's links, from the script that knows the addresses.
 
         One implementation of "which address does this host answer on" --
-        the script already has it, including the tailnet case and whether a
-        certificate exists, so asking it is better than guessing here.
+        the script already has it, including whether a certificate exists,
+        so asking it is better than guessing here. Private-network addresses
+        are dropped on the way out; see PRIVATE_KINDS.
         """
         out = self._run("link", slug, check=False)
         return [(m.group("kind"), m.group("url"))
-                for m in _LINK.finditer(out)]
+                for m in _LINK.finditer(out)
+                if m.group("kind") not in self.PRIVATE_KINDS]
 
     # ------------------------------------------------------------- writing
 

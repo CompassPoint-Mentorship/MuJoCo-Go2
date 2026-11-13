@@ -132,7 +132,6 @@ Three details in `docker-compose.yml` are load bearing:
 |---|---|
 | repo mounted at the **same absolute path** (`/srv/MuJoCo-Go2`) | `go2-student.sh` writes host paths into `deploy/students/*.env`, and the **host** daemon resolves them later. Two different views of the path and a student's work directory mounts from nowhere. |
 | `network_mode: host` | The lab links come from reading this machine's addresses. On a bridge network they would be `172.x`, which means nothing to a student. |
-| `/usr/bin/tailscale` and its socket, read-only | Otherwise the console silently offers LAN links only. Tailscale's CLI is a static binary, so borrowing the host's copy beats adding an apt repository to the image. |
 
 No application code is copied into the image: the repository is mounted, so
 what the site serves — including `install/mac.sh` — is always this checkout,
@@ -166,7 +165,7 @@ terminal, which is the same rule `deploy/go2-student.sh` follows.
 ## What is deliberately not here yet
 
 - **Student labs are not proxied through this domain.** The links on the
-  student page are the LAN or tailnet addresses the lab actually listens on,
+  student page are the local addresses the lab actually listens on,
   with their self-signed certificate and its browser warning. Putting them
   behind the public name needs a path prefix in JupyterLab
   (`--ServerApp.base_url`) and WebSocket forwarding, and it changes how the

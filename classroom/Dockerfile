@@ -15,8 +15,8 @@
 #     because go2-student.sh writes host paths into env files that the host's
 #     docker daemon later resolves (a bind mount of /srv/... from inside a
 #     container is still interpreted by the daemon, on the host);
-#   * host networking, so the lab links this app prints are the host's real
-#     LAN and tailnet addresses rather than a container's;
+#   * host networking, so the lab links this app prints carry the host's own
+#     address rather than a container's;
 #   * the docker CLI and the compose plugin, installed below, because the
 #     script it drives speaks `docker compose`.
 

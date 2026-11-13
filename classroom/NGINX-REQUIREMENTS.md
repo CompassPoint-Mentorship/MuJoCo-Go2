@@ -15,25 +15,22 @@ landing page, a student page, a mentor console and a copy of a shell script.
 
 | | |
 |---|---|
-| Upstream host | `bumblebee` — `192.168.1.215` (LAN) or `100.84.247.85` (tailnet) |
+| Upstream host | `bumblebee` — `192.168.1.215` on the local network |
 | Upstream port | `8500`, plain HTTP |
 | What it is | a container (`go2-classroom`) on host networking, `restart: unless-stopped` |
 | Health check | `GET /healthz` → `200`, body `ok` |
 | Expected traffic | tens of requests per class session; one mentor, up to ~30 students |
 
-Use the tailnet address if the gateway is on the tailnet — it needs no
-firewall holes. Otherwise the LAN address, and the upstream box will be
-firewalled to accept `8500` only from the gateway.
+The upstream box will be firewalled to accept `8500` only from the gateway.
 
-**The app is up and answering on both addresses now**, so the gateway can be
-configured and tested immediately:
+**The app is up and answering now**, so the gateway can be configured and
+tested immediately:
 
 ```
 $ curl -fsS http://192.168.1.215:8500/healthz     # -> ok
-$ curl -fsS http://100.84.247.85:8500/healthz     # -> ok
 ```
 
-It listens on `0.0.0.0:8500`, and believes `X-Forwarded-*` only from
+It listens on `0.0.0.0:8500` and believes `X-Forwarded-*` only from
 **192.168.1.220** -- the address the live gateway actually connects from,
 confirmed from the upstream side. If nginx is moved, say so, or `"scheme"` in
 check 5 will quietly read `http` again.
@@ -112,7 +109,7 @@ arrive complete; do not strip query parameters anywhere on this server.
 
 ```nginx
 upstream robodog {
-    server 100.84.247.85:8500;      # or 192.168.1.215:8500
+    server 192.168.1.215:8500;
     keepalive 16;
 }
 
