@@ -1,0 +1,278 @@
+"""The classroom site: who can see what, and what a button is allowed to run.
+
+Two things here are worth more than the rest. A console button shells out to
+`go2-student.sh` with a name that came from a browser, so the name has to be
+checked before it ever reaches a command line. And a student page shows a lab
+token, which is a password -- so it must come from the session's own row and
+nothing else, whatever the request asks for.
+
+Provisioning is off in every test (`provision=False`): the tests check what
+the app *asks* for, with a recording stand-in, rather than building docker
+images on a CI box that has no docker.
+"""
+
+from __future__ import annotations
+
+import base64
+import json
+import pathlib
+import sys
+
+import pytest
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+
+fastapi = pytest.importorskip("fastapi", reason="the classroom extra is not installed")
+from fastapi.testclient import TestClient            # noqa: E402
+
+from classroom import app as app_module              # noqa: E402
+from classroom import db, labs                       # noqa: E402
+from classroom.settings import Settings              # noqa: E402
+
+TEACHER = "mentor@example.org"
+SESSION_CSRF = "a-token-this-session-really-has"
+
+
+@pytest.fixture
+def settings(tmp_path) -> Settings:
+    return Settings(
+        base_url="https://robo-dog.example.org",
+        db_path=tmp_path / "classroom.db",
+        session_secret="test-secret-not-a-real-one",
+        teachers=frozenset({TEACHER}),
+        provision=False,
+    )
+
+
+@pytest.fixture
+def client(settings, monkeypatch):
+    calls: list[tuple[str, str]] = []
+
+    def record(self, command, slug, *, check=True):
+        if not db.valid_slug(slug):
+            raise labs.LabError(f"{slug!r} is not a valid student name")
+        calls.append((command, slug))
+        return ""
+
+    monkeypatch.setattr(labs.Labs, "_run", record)
+    # Over https, because the session cookie is Secure whenever the public
+    # name is -- which it is in production, and a test that quietly drops
+    # the cookie would be testing a configuration nobody runs.
+    client = TestClient(app_module.create_app(settings),
+                        base_url=settings.base_url)
+    client.calls = calls
+    client.settings = settings
+    return client
+
+
+def sign_in_as(client, *, kind, email=None, name="Someone", slug=None):
+    """Forge the session cookie the app would have set.
+
+    Going through Google in a test would mean mocking Google; going through
+    the app's own signing means the test proves the app trusts a session it
+    signed, which is the thing that matters.
+    """
+    from itsdangerous import TimestampSigner
+
+    # Clear first: setting a cookie that is already in the jar can leave both,
+    # and "the old session won" is the opposite of what these tests check.
+    client.cookies.clear()
+    # The form token lives in the session too, so a forged session carries one
+    # -- otherwise a test cannot tell "blocked because they are a student"
+    # from "blocked because the token was stale".
+    data = {"who": {"kind": kind, "email": email, "name": name, "slug": slug},
+            "csrf": SESSION_CSRF}
+    raw = base64.b64encode(json.dumps(data).encode())
+    signed = TimestampSigner(client.settings.session_secret).sign(raw)
+    client.cookies.set("session", signed.decode())
+
+
+# --------------------------------------------------------------- open pages
+
+def test_the_front_page_needs_no_login(client):
+    r = client.get("/")
+    assert r.status_code == 200
+    assert "robot dog" in r.text.lower()
+
+
+def test_the_installer_is_mirrored_off_this_domain(client):
+    """A student types the address on the board, not a GitHub URL."""
+    r = client.get("/CompassPoint-Mentorship/MuJoCo-Go2/main/install/mac.sh")
+    assert r.status_code == 200
+    assert r.text.startswith("#!/bin/bash")
+    assert "Go2 simulator installer" in r.text
+    # Byte-for-byte what this checkout holds, or the mirror is a fork.
+    source = pathlib.Path(__file__).resolve().parents[1] / "install" / "mac.sh"
+    assert r.text == source.read_text()
+
+
+def test_the_mirrored_installer_is_never_cached(client):
+    """The CDN window on raw.githubusercontent is the bug this must not repeat."""
+    r = client.get("/CompassPoint-Mentorship/MuJoCo-Go2/main/install/mac.sh")
+    assert "no-store" in r.headers.get("cache-control", "")
+
+
+# ------------------------------------------------------------------ console
+
+def test_the_console_is_closed_to_anonymous_visitors(client):
+    r = client.get("/console")
+    assert r.status_code == 200
+    assert "Mentor console" in r.text
+    assert "Add a student" not in r.text
+
+
+def test_a_signed_in_student_cannot_open_the_console(client):
+    sign_in_as(client, kind="student", name="Ada", slug="ada")
+    r = client.get("/console")
+    assert "Add a student" not in r.text
+    assert "not a mentor" in r.text
+
+
+def test_a_teacher_adds_a_student_and_gets_a_lab_started(client):
+    sign_in_as(client, kind="teacher", email=TEACHER, name="Mentor")
+    csrf = _csrf(client, "/console")
+
+    r = client.post("/console/add",
+                    data={"name": "Ada Lovelace", "email": "ada@example.org",
+                          "lab": "1", "csrf": csrf}, follow_redirects=True)
+
+    assert r.status_code == 200
+    student = db.get(client.settings.db_path, "ada-lovelace")
+    assert student is not None
+    assert student.display == "Ada Lovelace"
+    assert student.email == "ada@example.org"
+    assert client.calls == [("create", "ada-lovelace"), ("up", "ada-lovelace")]
+
+
+def test_adding_a_student_without_a_lab_runs_nothing(client):
+    sign_in_as(client, kind="teacher", email=TEACHER)
+    csrf = _csrf(client, "/console")
+    client.post("/console/add", data={"name": "Roster Only", "csrf": csrf},
+                follow_redirects=True)
+    assert db.get(client.settings.db_path, "roster-only") is not None
+    assert client.calls == []
+
+
+def test_a_name_that_is_not_a_name_never_reaches_a_command_line(client):
+    """The console turns typing into a container name. It is the boundary."""
+    sign_in_as(client, kind="teacher", email=TEACHER)
+    csrf = _csrf(client, "/console")
+
+    for hostile in ("; rm -rf /", "../../etc/passwd", "$(whoami)", "a b; docker ps"):
+        client.post("/console/add",
+                    data={"name": hostile, "lab": "1", "csrf": csrf},
+                    follow_redirects=True)
+
+    for _command, slug in client.calls:
+        assert db.valid_slug(slug), f"{slug!r} reached go2-student.sh"
+    for student in db.all_students(client.settings.db_path):
+        assert db.valid_slug(student.slug)
+
+
+def test_a_post_without_the_session_token_does_nothing(client):
+    sign_in_as(client, kind="teacher", email=TEACHER)
+    client.get("/console")                       # establishes a session token
+    client.post("/console/add", data={"name": "No Token"},
+                follow_redirects=True)
+    assert db.get(client.settings.db_path, "no-token") is None
+
+
+def test_a_student_cannot_drive_the_console_buttons(client):
+    sign_in_as(client, kind="teacher", email=TEACHER)
+    csrf = _csrf(client, "/console")
+    client.post("/console/add", data={"name": "Ada", "csrf": csrf},
+                follow_redirects=True)
+    client.calls.clear()
+
+    # Their own session, their own valid token: so what stops them is being
+    # a student, not a stale form.
+    sign_in_as(client, kind="student", name="Ada", slug="ada")
+    client.post("/console/lab/ada/start", data={"csrf": SESSION_CSRF},
+                follow_redirects=True)
+
+    assert client.calls == []
+
+
+# ------------------------------------------------------------------ student
+
+def test_a_join_code_signs_a_student_in(client):
+    student = db.add(client.settings.db_path, slug="ada", display="Ada",
+                     email=None, created_by="test")
+    csrf = _csrf(client, "/student")
+
+    r = client.post("/student/code",
+                    data={"code": student.join_code.lower().replace("-", " "),
+                          "csrf": csrf}, follow_redirects=True)
+
+    assert r.status_code == 200
+    assert "Hello, " in r.text and "Ada" in r.text
+    assert "curl -fsSL https://robo-dog.example.org" in r.text
+
+
+def test_a_wrong_code_says_so_and_signs_nobody_in(client):
+    db.add(client.settings.db_path, slug="ada", display="Ada", email=None,
+           created_by="test")
+    csrf = _csrf(client, "/student")
+    r = client.post("/student/code", data={"code": "XXXX-XXXX", "csrf": csrf},
+                    follow_redirects=True)
+    assert "does not match anyone" in r.text
+    assert "Hello, " not in r.text
+
+
+def test_a_student_sees_their_own_lab_and_not_another_one(client, monkeypatch):
+    """A lab link is a password. It comes from the session's row, only."""
+    path = client.settings.db_path
+    db.add(path, slug="ada", display="Ada", email=None, created_by="t")
+    db.add(path, slug="bob", display="Bob", email=None, created_by="t")
+
+    def fake_info(self, slug):
+        return labs.Lab(slug=slug, port=8400 if slug == "ada" else 8401,
+                        token=f"token-for-{slug}", work_dir="/tmp",
+                        status="Up 2 minutes")
+
+    monkeypatch.setattr(labs.Labs, "info", fake_info)
+    monkeypatch.setattr(labs.Labs, "links", lambda self, slug: [
+        ("lan", f"https://10.0.0.1:8400/proxy/8399/split?token=token-for-{slug}")])
+
+    sign_in_as(client, kind="student", name="Ada", slug="ada")
+    r = client.get("/student")
+
+    assert "token-for-ada" in r.text
+    assert "token-for-bob" not in r.text
+
+
+def test_a_student_removed_from_the_roster_is_signed_out(client):
+    sign_in_as(client, kind="student", name="Ghost", slug="ghost")
+    r = client.get("/student")
+    assert "no longer on the list" in r.text
+
+
+def test_the_join_code_is_readable_out_loud(client):
+    """It gets read across a classroom and typed by someone who cannot see it."""
+    for _ in range(50):
+        code = db.new_code()
+        assert "-" in code and len(code) == 9
+        assert not set(code) & set("01OIL"), f"{code} has a character to misread"
+
+
+# -------------------------------------------------------------------- misc
+
+def test_google_sign_in_degrades_to_an_explanation(client):
+    """An unconfigured Google must not be a 500 in front of a class."""
+    r = client.get("/login/google?next=/console", follow_redirects=False)
+    assert r.status_code == 200
+    assert "not set up yet" in r.text
+
+
+def test_health_check(client):
+    assert client.get("/healthz").text.strip() == "ok"
+
+
+def _csrf(client, path: str) -> str:
+    """Read the session token out of a rendered form, like a browser would."""
+    import re
+
+    page = client.get(path).text
+    match = re.search(r'name="csrf" value="([^"]+)"', page)
+    assert match, f"no csrf field on {path}"
+    return match.group(1)

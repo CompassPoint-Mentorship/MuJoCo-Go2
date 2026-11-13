@@ -41,7 +41,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libosmesa6 libgl1 libglib2.0-0
-      - run: pip install -e ".[dev]" ${{ matrix.mujoco }}
+      # [classroom] too: the console shells out to go2-student.sh with a
+      # name that came from a browser, and that boundary has tests.
+      - run: pip install -e ".[dev,classroom]" ${{ matrix.mujoco }}
       - run: python -c "import mujoco; print('mujoco', mujoco.__version__)"
       - run: pytest -q
         env:

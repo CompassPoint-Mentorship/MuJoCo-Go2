@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Google sign-in not configured — Robo Dog{% endblock %}
+{% block body %}
+<h1>Google sign-in is not set up yet</h1>
+<div class="card poppy-card">
+  <p>
+    This server has no Google client configured, so there is nothing to send
+    you to. Students can sign in with a <a href="/student">join code</a>
+    meanwhile — everything else works.
+  </p>
+  <p class="note">
+    Mentors: <code>classroom/README.md</code> has the five-minute version of
+    setting this up, and <a href="/console">the console page</a> lists the
+    exact variables to set.
+  </p>
+</div>
+{% endblock %}

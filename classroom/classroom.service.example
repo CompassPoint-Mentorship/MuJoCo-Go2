@@ -1,0 +1,31 @@
+# The Robo Dog classroom site.
+#
+#   sudo cp classroom/classroom.service.example /etc/systemd/system/classroom.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now classroom
+#
+# It runs as the user that owns the repository and is in the docker group:
+# starting a student's lab means running deploy/go2-student.sh, which means
+# talking to docker. It is not a root service and must not become one.
+
+[Unit]
+Description=Robo Dog classroom (console, student pages, installer mirror)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=myao
+Group=myao
+WorkingDirectory=/srv/MuJoCo-Go2
+# Secrets live here, not in this file: GO2_TEACHERS, GOOGLE_CLIENT_ID,
+# GOOGLE_CLIENT_SECRET, GO2_SESSION_SECRET, GO2_BASE_URL.
+EnvironmentFile=/srv/MuJoCo-Go2/.env
+ExecStart=/srv/MuJoCo-Go2/.venv/bin/python -m classroom --host 127.0.0.1 --port 8500
+Restart=on-failure
+RestartSec=5
+# The one thing it writes outside the repo is nothing; keep it that way.
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

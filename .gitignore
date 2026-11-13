@@ -45,3 +45,7 @@ go2/_build.py
 
 # Local secrets: the GitHub token used to file issues. Never commit.
 .env
+
+# The classroom site keeps its roster next to it; it is not source.
+classroom/*.db
+classroom/*.db-journal

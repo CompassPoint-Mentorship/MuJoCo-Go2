@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}Console — Robo Dog{% endblock %}
+{% block body %}
+
+<h1>Class <span class="poppy">console</span></h1>
+<p class="lede">{{ rows|length }} student{{ '' if rows|length == 1 else 's' }} on the list.</p>
+
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+<div class="card poppy-card">
+  <h3>🌼 Add a student</h3>
+  <form class="row" method="post" action="/console/add">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div>
+      <label for="name">Name</label>
+      <input id="name" name="name" type="text" placeholder="Ada Lovelace" required>
+    </div>
+    <div>
+      <label for="email">Google address (optional)</label>
+      <input id="email" name="email" type="email" placeholder="ada@example.org">
+    </div>
+    <div>
+      <label><input type="checkbox" name="lab" value="1" checked> start a lab for them</label>
+    </div>
+    <button class="btn" type="submit">Add</button>
+  </form>
+  <p class="note">
+    The name becomes their container and work folder (<code>Ada Lovelace</code>
+    → <code>ada-lovelace</code>). Starting a lab takes a few minutes the first
+    time — this page updates itself while it builds. Leave the address blank
+    and they sign in with the join code instead.
+  </p>
+</div>
+
+<table>
+  <tr>
+    <th>Student</th>
+    <th>Join code</th>
+    <th>Lab</th>
+    <th>Link</th>
+    <th></th>
+  </tr>
+  {% for row in rows %}
+  {% set s = row.student %}
+  <tr data-slug="{{ s.slug }}">
+    <td>
+      <strong>{{ s.display }}</strong><br>
+      <span class="note">{{ s.slug }}{% if s.email %} · {{ s.email }}{% endif %}</span>
+    </td>
+    <td><span class="code-chip">{{ s.join_code }}</span></td>
+    <td>
+      <span class="pill {{ row.state }}">{{ row.state }}</span>
+      {% if row.lab and row.lab.port %}<br><span class="note">port {{ row.lab.port }}</span>{% endif %}
+      {% if s.lab_note and row.state in ('failed', 'provisioning') %}
+        <br><span class="note">{{ s.lab_note }}</span>
+      {% endif %}
+    </td>
+    <td>
+      {% for kind, url in row.links %}
+        <a href="{{ url }}">{{ kind }}</a>{% if not loop.last %} · {% endif %}
+      {% else %}
+        <span class="note">—</span>
+      {% endfor %}
+    </td>
+    <td>
+      <form method="post" action="/console/lab/{{ s.slug }}/{{ 'stop' if row.state == 'running' else 'start' }}" style="display:inline">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="btn small {{ 'ghost' if row.state == 'running' else '' }}" type="submit">
+          {{ 'Stop' if row.state == 'running' else 'Start' }}
+        </button>
+      </form>
+      <form method="post" action="/console/lab/{{ s.slug }}/sync" style="display:inline">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="btn small ghost" type="submit" title="hand out updated coursework">Sync</button>
+      </form>
+      <form method="post" action="/console/lab/{{ s.slug }}/forget" style="display:inline"
+            onsubmit="return confirm('Take {{ s.display }} off the list? Their lab and their work stay on the server.')">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="btn small ghost" type="submit">Forget</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+
+<h2>What the buttons do</h2>
+<ul class="note">
+  <li><strong>Start</strong> — <code>go2-student.sh create</code> (first time) then <code>up</code>: builds the image if needed and starts their container.</li>
+  <li><strong>Stop</strong> — <code>down</code>. Their work is a bind mount, so nothing is lost.</li>
+  <li><strong>Sync</strong> — hands out updated coursework. The example notebook is read-only, so this replaces it in place.</li>
+  <li><strong>Forget</strong> — removes them from this list only. Their container, their work folder and their port stay exactly where they are; cleaning those up is a decision for someone at a terminal.</li>
+</ul>
+
+<script>
+// While a lab is building, this page is a progress bar. Poll rather than
+// make the teacher refresh -- they are usually mid-class.
+(function () {
+  function busy() { return !!document.querySelector('.pill.provisioning'); }
+  if (!busy()) return;
+  var tick = setInterval(async function () {
+    try {
+      var r = await fetch('/console/status.json');
+      if (!r.ok) return;
+      var data = await r.json();
+      var stillBusy = false;
+      data.students.forEach(function (s) {
+        var row = document.querySelector('tr[data-slug="' + s.slug + '"]');
+        if (!row) return;
+        var pill = row.querySelector('.pill');
+        if (pill && pill.textContent.trim() !== s.state) { location.reload(); }
+        if (s.state === 'provisioning') stillBusy = true;
+      });
+      if (!stillBusy) clearInterval(tick);
+    } catch (e) { /* the page still works without this */ }
+  }, 4000);
+})();
+</script>
+{% endblock %}

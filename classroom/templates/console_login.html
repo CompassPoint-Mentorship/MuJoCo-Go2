@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Mentor sign-in — Robo Dog{% endblock %}
+{% block body %}
+
+<h1>Mentor console</h1>
+<p class="lede">Sign in with the Google account on the mentor list.</p>
+
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+<div class="card poppy-card">
+  {% if settings.google_configured %}
+    <p><a class="btn google" href="/login/google?next=/console">Continue with Google</a></p>
+    <p class="note">
+      Only addresses in <code>GO2_TEACHERS</code> can open the console. It runs
+      docker on the class server, so the list is an allowlist on this machine
+      rather than a role someone can grant themselves.
+    </p>
+  {% else %}
+    <h3>Google sign-in is not configured yet</h3>
+    <p>On the server, set these and restart the site:</p>
+    <pre class="cmd"><code>GOOGLE_CLIENT_ID=...apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=...
+GO2_TEACHERS=you@example.org,other@example.org
+GO2_BASE_URL={{ settings.base_url }}
+GO2_SESSION_SECRET=$(openssl rand -base64 32)</code></pre>
+    <p class="note">
+      The client comes from Google Cloud → APIs &amp; Services → Credentials →
+      OAuth client ID (Web application), with
+      <code>{{ settings.base_url }}/auth/google/callback</code> as an
+      authorised redirect URI. <code>classroom/README.md</code> has the
+      step-by-step.
+    </p>
+  {% endif %}
+</div>
+
+{% endblock %}

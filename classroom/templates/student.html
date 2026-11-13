@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}{{ student.display }} — Robo Dog{% endblock %}
+{% block body %}
+
+<h1>Hello, <span class="poppy">{{ student.display }}</span>.</h1>
+<p class="lede">Everything you need to start is on this page.</p>
+
+<div class="card poppy-card">
+  <h3>🌼 1. Put the dog on your own laptop</h3>
+  <p>Open <strong>Terminal</strong> (macOS or Ubuntu) and paste this one line:</p>
+  <pre class="cmd" id="install"><code>curl -fsSL {{ settings.install_url }} | bash</code>
+<button class="copy" data-for="install">copy</button></pre>
+  <p class="note">
+    It downloads its own Python, installs nothing system-wide and never asks
+    for your password. The first run takes a few minutes; run the same line
+    again any time to update.
+  </p>
+  <p>
+    Then open <strong>Go2 Lab</strong> from your Applications folder. A browser
+    tab opens with the notebook on the left and the dog on the right.
+  </p>
+</div>
+
+{% if lab and lab.running and links %}
+<div class="card">
+  <h3>2. Or use your lab in the browser</h3>
+  <p>
+    Nothing to install. This link is yours — <strong>treat it like a
+    password</strong>, it signs you straight in:
+  </p>
+  {% for kind, url in links %}
+    <pre class="cmd" id="lab-{{ loop.index }}"><code>{{ url }}</code>
+<button class="copy" data-for="lab-{{ loop.index }}">copy</button></pre>
+    <p class="note">({{ kind }} address — use the one that matches the network you are on.)</p>
+  {% endfor %}
+  <p class="note">
+    Your browser will warn you about the certificate the first time. That is
+    expected here: choose <em>Advanced → Proceed</em>. Your mentor can read
+    you the fingerprint to check.
+  </p>
+</div>
+{% elif lab %}
+<div class="card">
+  <h3>2. Your browser lab</h3>
+  <p class="note">
+    Your lab exists but is not running right now. Ask your mentor to start it,
+    or use the laptop install above — it works either way.
+  </p>
+</div>
+{% endif %}
+
+<div class="card">
+  <h3>{% if lab %}3{% else %}2{% endif %}. Open the first notebook</h3>
+  <p>
+    Open <code>01_hello_dog.ipynb</code> — and before you change anything,
+    <strong>make your own copy</strong>: right-click it, choose
+    <strong>Duplicate</strong>, rename the copy, and work in that. The example
+    is read-only so that fixes and new tricks keep arriving in it.
+  </p>
+</div>
+
+<h2>If something looks wrong</h2>
+<p class="note">
+  Tell your mentor what the screen says, and include the build number printed
+  when the lab starts — that is the first thing we will ask for. If the dog
+  walks off and will not stop, press the <strong>stop</strong> button in the
+  panel or run <code>dog.stop()</code>.
+</p>
+
+<p class="note">
+  Signed in as {{ who.name }}{% if student.email %} ({{ student.email }}){% endif %}.
+  Your join code is <span class="code-chip">{{ student.join_code }}</span> — it
+  signs you in on any machine.
+</p>
+
+<script>
+document.querySelectorAll('button.copy').forEach(function (b) {
+  b.addEventListener('click', function () {
+    var pre = document.getElementById(b.dataset.for);
+    var text = pre.querySelector('code').textContent;
+    navigator.clipboard.writeText(text).then(function () {
+      b.textContent = 'copied';
+      setTimeout(function () { b.textContent = 'copy'; }, 1500);
+    }, function () { b.textContent = 'press ⌘C'; });
+  });
+});
+</script>
+{% endblock %}

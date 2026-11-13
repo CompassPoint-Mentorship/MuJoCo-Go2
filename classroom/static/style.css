@@ -1,0 +1,124 @@
+/* Robo Dog classroom -- California poppy on paper.
+ *
+ * One stylesheet, no framework, no build step: this site is three pages and
+ * has to keep working for a term without anyone minding it.
+ */
+
+:root {
+  --poppy: #f97316;
+  --poppy-deep: #e8590c;
+  --poppy-pale: #fff4e6;
+  --ink: #1f2328;
+  --muted: #5b6168;
+  --line: #e4e6e8;
+  --paper: #ffffff;
+  --sky: #0b7285;
+  --bad: #c92a2a;
+  --good: #2b8a3e;
+  font-size: 17px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.55;
+}
+
+a { color: var(--poppy-deep); }
+a.plain { color: var(--muted); }
+
+.bar {
+  display: flex; align-items: center; gap: 1rem;
+  padding: 0.7rem 1.2rem;
+  border-bottom: 3px solid var(--poppy);
+}
+.brand { font-weight: 700; font-size: 1.15rem; text-decoration: none; color: var(--ink); }
+.brand .dog { font-size: 1.3rem; }
+.bar nav { margin-left: auto; display: flex; align-items: center; gap: 1rem; font-size: 0.95rem; }
+.bar .who { color: var(--muted); }
+
+main { max-width: 52rem; margin: 0 auto; padding: 1.5rem 1.2rem 4rem; }
+
+footer {
+  max-width: 52rem; margin: 0 auto; padding: 1rem 1.2rem 3rem;
+  color: var(--muted); font-size: 0.85rem;
+  border-top: 1px solid var(--line);
+}
+footer .sep { margin: 0 0.4rem; }
+
+h1 { font-size: 2.1rem; line-height: 1.15; margin: 1.2rem 0 0.4rem; }
+h2 { font-size: 1.35rem; margin: 2rem 0 0.6rem; }
+h1 .poppy, .poppy { color: var(--poppy-deep); }
+.lede { font-size: 1.15rem; color: var(--muted); margin-top: 0; }
+
+.card {
+  border: 1px solid var(--line); border-radius: 10px;
+  padding: 1rem 1.2rem; margin: 1rem 0;
+}
+.card.poppy-card { border-left: 6px solid var(--poppy); background: var(--poppy-pale); }
+.card h2, .card h3 { margin-top: 0; }
+
+.steps { padding-left: 1.2rem; }
+.steps li { margin: 0.35rem 0; }
+
+code, pre, kbd { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+code { background: #f4f5f6; padding: 0.1rem 0.3rem; border-radius: 4px; font-size: 0.9em; }
+
+pre.cmd {
+  position: relative;
+  background: #1f2328; color: #f6f7f8;
+  padding: 0.9rem 1rem; border-radius: 8px;
+  overflow-x: auto; font-size: 0.86rem; margin: 0.6rem 0;
+}
+pre.cmd code { background: none; color: inherit; padding: 0; }
+button.copy {
+  position: absolute; top: 0.5rem; right: 0.5rem;
+  background: var(--poppy-deep); color: #fff; border: 0;
+  border-radius: 6px; padding: 0.25rem 0.6rem; font-size: 0.78rem; cursor: pointer;
+}
+button.copy:hover { background: var(--poppy); }
+
+.btn {
+  display: inline-block; border: 0; border-radius: 8px;
+  background: var(--poppy-deep); color: #fff; text-decoration: none;
+  padding: 0.55rem 1.1rem; font-size: 0.95rem; cursor: pointer;
+}
+.btn:hover { background: var(--poppy); }
+.btn.ghost { background: #fff; color: var(--ink); border: 1px solid var(--line); }
+.btn.small { padding: 0.3rem 0.7rem; font-size: 0.82rem; }
+.btn.google { background: #fff; color: var(--ink); border: 1px solid var(--line); font-weight: 600; }
+
+form.row { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: flex-end; }
+label { display: block; font-size: 0.85rem; color: var(--muted); }
+input[type=text], input[type=email] {
+  font: inherit; padding: 0.5rem 0.6rem;
+  border: 1px solid var(--line); border-radius: 8px; min-width: 14rem;
+}
+input:focus { outline: 2px solid var(--poppy); border-color: var(--poppy); }
+
+table { border-collapse: collapse; width: 100%; font-size: 0.93rem; }
+th, td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; }
+
+.pill { display: inline-block; padding: 0.1rem 0.55rem; border-radius: 999px; font-size: 0.78rem; font-weight: 600; }
+.pill.running { background: #e6f4ea; color: var(--good); }
+.pill.stopped { background: #f1f3f5; color: var(--muted); }
+.pill.provisioning { background: var(--poppy-pale); color: var(--poppy-deep); }
+.pill.failed { background: #fdecec; color: var(--bad); }
+.pill.none { background: #f1f3f5; color: var(--muted); }
+
+.code-chip { font-family: ui-monospace, monospace; background: var(--poppy-pale); color: var(--poppy-deep); padding: 0.1rem 0.45rem; border-radius: 5px; font-weight: 700; letter-spacing: 0.04em; }
+
+.note { color: var(--muted); font-size: 0.9rem; }
+.error { background: #fdecec; border-left: 6px solid var(--bad); padding: 0.8rem 1rem; border-radius: 8px; margin: 1rem 0; }
+
+@media (max-width: 640px) {
+  .bar { flex-wrap: wrap; }
+  input[type=text], input[type=email] { min-width: 0; width: 100%; }
+  form.row { display: block; }
+  form.row > * { margin-bottom: 0.6rem; }
+}
