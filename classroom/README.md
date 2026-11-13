@@ -71,10 +71,16 @@ GO2_CLASSROOM_DB=/srv/MuJoCo-Go2/classroom/classroom.db
 GO2_PROVISION=1                                   # 0 = roster only, never touch docker
 ```
 
-`GO2_TEACHERS` is an allowlist on this machine, not a role in the database.
-The console runs `docker` on the class server; who may open it is a decision
-for whoever can edit the service file, not for anyone who can reach a signup
-form.
+`GO2_TEACHERS` is the root of the mentor list: an allowlist on this machine,
+not a role anyone can grant themselves through a signup form. Mentors added
+from the console are kept in the database *in addition* to it, so a lost
+database or a bad row can never lock the owners out — and entries from the
+environment cannot be removed through the web page.
+
+A mentor can add another mentor, by Google address, from the console. That is
+a real grant: the console starts and stops containers on this machine. The
+table records who added whom, removal takes effect on the next request rather
+than when a session expires, and the environment list stays the backstop.
 
 ### 3. nginx, on your gateway
 
@@ -144,7 +150,9 @@ the same docker-group reason.
 
 ## Running a class
 
-1. Sign in at `/console` with Google.
+1. Sign in at `/console` with Google. To add a co-mentor, put their Google
+   address in **Mentors** and send them the console link — nothing is emailed
+   from here.
 2. Type the student's name. `Ada Lovelace` becomes `ada-lovelace`: their
    container, their work folder, their port.
 3. Leave **start a lab for them** ticked and the console runs

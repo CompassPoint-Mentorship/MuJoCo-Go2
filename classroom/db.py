@@ -37,6 +37,17 @@ CREATE TABLE IF NOT EXISTS students (
     created_by  TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS students_email ON students (email);
+
+-- Mentors added through the console, on top of the ones GO2_TEACHERS names.
+-- `added_by` is not decoration: opening the console means running docker on
+-- the class server, so who granted that, and when, is worth being able to
+-- answer later.
+CREATE TABLE IF NOT EXISTS mentors (
+    email       TEXT PRIMARY KEY,
+    display     TEXT NOT NULL DEFAULT '',
+    added_by    TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL
+);
 """
 
 
@@ -172,6 +183,47 @@ def set_email(path: pathlib.Path, slug: str, email: str | None) -> None:
     with connect(path) as conn:
         conn.execute("UPDATE students SET email = ? WHERE slug = ?",
                      ((email or "").strip().lower() or None, slug))
+
+
+# ------------------------------------------------------------------ mentors
+
+def add_mentor(path: pathlib.Path, email: str, added_by: str,
+               display: str = "") -> str:
+    """Let one more Google address open the console. Returns the address.
+
+    No validation beyond "looks like an address": the gate is that only a
+    mentor can call this, and Google decides whether the address is real.
+    """
+    email = (email or "").strip().lower()
+    if "@" not in email or " " in email or len(email) < 5:
+        raise ValueError(f"{email or '(nothing)'} is not an email address")
+    with connect(path) as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO mentors (email, display, added_by, created_at)"
+            " VALUES (?,?,?,?)", (email, display.strip(), added_by, _now()))
+    return email
+
+
+def mentors(path: pathlib.Path) -> list[dict]:
+    with connect(path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM mentors ORDER BY created_at").fetchall()
+    return [dict(r) for r in rows]
+
+
+def is_mentor(path: pathlib.Path, email: str) -> bool:
+    email = (email or "").strip().lower()
+    if not email:
+        return False
+    with connect(path) as conn:
+        return conn.execute("SELECT 1 FROM mentors WHERE email = ?",
+                            (email,)).fetchone() is not None
+
+
+def remove_mentor(path: pathlib.Path, email: str) -> None:
+    with connect(path) as conn:
+        conn.execute("DELETE FROM mentors WHERE email = ?",
+                     ((email or "").strip().lower(),))
 
 
 def remove(path: pathlib.Path, slug: str) -> None:

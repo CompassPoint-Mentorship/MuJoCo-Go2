@@ -122,8 +122,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             given, request.session.get("csrf", ""))
 
     def teacher_only(request: Request) -> auth.Who | None:
+        """The session says mentor; the lists decide whether it still is.
+
+        Re-checked on every request rather than trusted from the cookie, so
+        removing a mentor takes effect immediately instead of whenever their
+        two-week session happens to expire. The cookie is signed, not
+        authoritative.
+        """
         who = auth.current(request)
-        return who if who and who.is_teacher else None
+        if not who or not who.is_teacher:
+            return None
+        if not auth.is_mentor(settings, who.email or ""):
+            auth.sign_out(request)
+            return None
+        return who
 
     def provision(slug: str) -> None:
         """create + up, in a worker thread, recording what happened."""
@@ -134,6 +146,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             db.set_state(settings.db_path, slug, "running", "")
         except LabError as exc:
             db.set_state(settings.db_path, slug, "failed", str(exc))
+
+    def mentor_rows() -> list[dict]:
+        """Both lists, marked by where they came from.
+
+        The environment's entries cannot be removed here: they are the root
+        of the whole arrangement, and a console that can revoke its own
+        owners is a console that can be locked by one bad click.
+        """
+        rows = [{"email": e, "fixed": True, "added_by": "GO2_TEACHERS"}
+                for e in sorted(settings.teachers)]
+        rows += [{"email": m["email"], "fixed": False,
+                  "added_by": m["added_by"], "created_at": m["created_at"]}
+                 for m in db.mentors(settings.db_path)
+                 if not settings.is_teacher(m["email"])]
+        return rows
 
     def roster() -> list[dict]:
         rows = []
@@ -211,12 +238,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         who = auth.current(request)
         if not who:
             return page(request, "console_login.html", error=None)
-        if not who.is_teacher:
+        if not teacher_only(request):
             return page(request, "console_login.html",
                         error=f"{who.email or who.name} is not a mentor on "
-                              "this server. Ask for your address to be added "
-                              "to GO2_TEACHERS.")
-        return page(request, "console.html", rows=roster())
+                              "this server. Another mentor can add you from "
+                              "the console.")
+        return page(request, "console.html", rows=roster(),
+                    mentors=mentor_rows())
 
     @app.post("/console/add")
     async def console_add(request: Request, name: str = Form(""),
@@ -262,6 +290,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 db.remove(settings.db_path, slug)
         except LabError as exc:
             db.set_state(settings.db_path, slug, "failed", str(exc))
+        return RedirectResponse("/console", status_code=303)
+
+    @app.post("/console/mentors/add")
+    def console_add_mentor(request: Request, email: str = Form(""),
+                           csrf: str = Form("")):
+        who = teacher_only(request)
+        if not who or not _check_csrf(request, csrf):
+            return RedirectResponse("/console", status_code=303)
+        try:
+            db.add_mentor(settings.db_path, email, added_by=who.email or who.name)
+        except ValueError as exc:
+            return page(request, "console.html", rows=roster(),
+                        mentors=mentor_rows(), error=str(exc))
+        return RedirectResponse("/console", status_code=303)
+
+    @app.post("/console/mentors/remove")
+    def console_remove_mentor(request: Request, email: str = Form(""),
+                              csrf: str = Form("")):
+        who = teacher_only(request)
+        if not who or not _check_csrf(request, csrf):
+            return RedirectResponse("/console", status_code=303)
+        if settings.is_teacher(email):
+            # Named in the environment: not ours to revoke, and the error
+            # says where to go instead of failing silently.
+            return page(request, "console.html", rows=roster(),
+                        mentors=mentor_rows(),
+                        error=f"{email} is set in GO2_TEACHERS on the server, "
+                              "so it cannot be removed from here.")
+        db.remove_mentor(settings.db_path, email)
         return RedirectResponse("/console", status_code=303)
 
     @app.get("/console/status.json")

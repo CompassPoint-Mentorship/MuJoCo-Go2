@@ -2,10 +2,11 @@
 
 Two ways in, deliberately:
 
-  * **Google** is how a teacher signs in, and the only way the console can be
-    reached. A teacher is whoever appears in GO2_TEACHERS -- an allowlist,
-    not a role in a database, because the thing it protects is a button that
-    runs docker on the class server.
+  * **Google** is how a mentor signs in, and the only way the console can be
+    reached. A mentor is whoever appears in GO2_TEACHERS, plus whoever an
+    existing mentor has added through the console. The environment list is
+    the root of that: it cannot be edited from inside the app, so losing the
+    database or a bad row can never lock the real owners out.
   * **A join code** is how a student signs in when they have no Google
     account the school lets them use, which is most of them. The code is
     issued by the teacher and names exactly one student.
@@ -59,14 +60,24 @@ def current(request: Request) -> Who | None:
                name=raw.get("name") or "", slug=raw.get("slug"))
 
 
-def identify(settings: Settings, email: str, name: str) -> Who | None:
-    """Turn a verified Google address into a teacher, a student, or nobody.
+def is_mentor(settings: Settings, email: str) -> bool:
+    """Either list counts: the environment's, or the console's own.
 
-    Order matters: the teacher list wins, so a mentor who is also on the
+    Opening the console means running docker on the class server, so this
+    is the whole of the authorisation and it is checked on every request
+    rather than trusted from the session's `kind` alone.
+    """
+    return settings.is_teacher(email) or db.is_mentor(settings.db_path, email)
+
+
+def identify(settings: Settings, email: str, name: str) -> Who | None:
+    """Turn a verified Google address into a mentor, a student, or nobody.
+
+    Order matters: the mentor lists win, so someone who is also on the
     roster for testing still gets the console.
     """
     email = (email or "").strip().lower()
-    if settings.is_teacher(email):
+    if is_mentor(settings, email):
         return Who(kind="teacher", email=email, name=name or email)
     student = db.by_email(settings.db_path, email) if email else None
     if student:

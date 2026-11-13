@@ -83,6 +83,54 @@
   {% endfor %}
 </table>
 
+<h2>Mentors</h2>
+<p class="note">
+  Anyone here can open this console, which starts and stops containers on the
+  class server. Add the people who run sessions, not everyone who helps out.
+</p>
+
+<table>
+  <tr><th>Google address</th><th>Added by</th><th></th></tr>
+  {% for m in mentors %}
+  <tr>
+    <td>{{ m.email }}</td>
+    <td>
+      {% if m.fixed %}
+        <span class="note">set on the server</span>
+      {% else %}
+        <span class="note">{{ m.added_by }}</span>
+      {% endif %}
+    </td>
+    <td>
+      {% if not m.fixed %}
+      <form method="post" action="/console/mentors/remove" style="display:inline"
+            onsubmit="return confirm('Remove {{ m.email }}? They lose the console immediately.')">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="email" value="{{ m.email }}">
+        <button class="btn small ghost" type="submit">Remove</button>
+      </form>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+
+<form class="row" method="post" action="/console/mentors/add" style="margin-top:0.9rem">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <div>
+    <label for="mentor">Add a mentor by Google address</label>
+    <input id="mentor" name="email" type="email" placeholder="co-mentor@gmail.com" required>
+  </div>
+  <button class="btn" type="submit">Add mentor</button>
+</form>
+<p class="note">
+  Any Google account works. They sign in at
+  <code>{{ settings.base_url }}/console</code> — send them that link; nothing
+  is emailed from here. Addresses set in <code>GO2_TEACHERS</code> on the
+  server cannot be removed from this page, which is what stops a console from
+  locking out its own owners.
+</p>
+
 <h2>What the buttons do</h2>
 <ul class="note">
   <li><strong>Start</strong> — <code>go2-student.sh create</code> (first time) then <code>up</code>: builds the image if needed and starts their container.</li>

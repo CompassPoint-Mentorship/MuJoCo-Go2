@@ -397,3 +397,63 @@ def test_private_network_addresses_never_reach_a_browser(client, monkeypatch):
     assert "192.168.1.9" in page, "the usable link should still be offered"
     assert "100.64.1.2" not in page
     assert "tailnet" not in page.lower()
+
+
+def test_a_mentor_can_add_another_mentor_by_gmail(client):
+    sign_in_as(client, kind="teacher", email=TEACHER, name="Mentor")
+    csrf = _csrf(client, "/console")
+
+    client.post("/console/mentors/add",
+                data={"email": "Co.Mentor@Gmail.com ", "csrf": csrf},
+                follow_redirects=True)
+
+    assert db.is_mentor(client.settings.db_path, "co.mentor@gmail.com"), \
+        "stored lower-cased and trimmed, because that is how Google sends it"
+
+
+def test_an_added_mentor_really_gets_the_console(client):
+    """The allowlist is the environment's list plus the console's, not either."""
+    from classroom import auth
+
+    db.add_mentor(client.settings.db_path, "new@gmail.com", added_by=TEACHER)
+    assert auth.is_mentor(client.settings, "new@gmail.com")
+
+    sign_in_as(client, kind="teacher", email="new@gmail.com", name="New")
+    assert "Add a student" in client.get("/console").text
+
+
+def test_removing_a_mentor_takes_effect_before_their_cookie_expires(client):
+    """A signed session is not authority; the lists are, on every request."""
+    db.add_mentor(client.settings.db_path, "temp@gmail.com", added_by=TEACHER)
+    sign_in_as(client, kind="teacher", email="temp@gmail.com", name="Temp")
+    assert "Add a student" in client.get("/console").text
+
+    db.remove_mentor(client.settings.db_path, "temp@gmail.com")
+
+    page = client.get("/console").text
+    assert "Add a student" not in page, "a two-week cookie outlived the removal"
+
+
+def test_the_environments_mentors_cannot_be_removed_from_the_console(client):
+    """Otherwise one click can lock the owners out of their own server."""
+    sign_in_as(client, kind="teacher", email=TEACHER)
+    csrf = _csrf(client, "/console")
+
+    r = client.post("/console/mentors/remove",
+                    data={"email": TEACHER, "csrf": csrf}, follow_redirects=True)
+
+    assert "cannot be removed from here" in r.text
+    from classroom import auth
+    assert auth.is_mentor(client.settings, TEACHER)
+
+
+def test_a_student_cannot_make_themselves_a_mentor(client):
+    db.add(client.settings.db_path, slug="ada", display="Ada", email=None,
+           created_by="t")
+    sign_in_as(client, kind="student", name="Ada", slug="ada")
+
+    client.post("/console/mentors/add",
+                data={"email": "ada@gmail.com", "csrf": SESSION_CSRF},
+                follow_redirects=True)
+
+    assert not db.is_mentor(client.settings.db_path, "ada@gmail.com")
