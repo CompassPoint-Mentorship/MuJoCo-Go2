@@ -10,8 +10,15 @@ Three pages and a mirror:
 | `/CompassPoint-Mentorship/MuJoCo-Go2/main/install/mac.sh` | anyone | the installer, served from this domain |
 
 ```bash
-python -m classroom                 # 127.0.0.1:8500, behind your own nginx
-python -m classroom --host 0.0.0.0  # if nothing is in front of it
+cd classroom && docker compose up -d --build      # how it runs in production
+docker compose logs -f
+```
+
+or, for development, straight off the checkout:
+
+```bash
+python -m classroom                 # 127.0.0.1:8500
+python -m classroom --host 0.0.0.0  # reachable from a proxy on another box
 ```
 
 ## Why the installer is mirrored here
@@ -100,21 +107,41 @@ https, which is what makes the session cookie `Secure`. `python -m classroom`
 starts uvicorn with `--proxy-headers`, so bind it to an address only your
 gateway can reach.
 
-### 4. systemd
-
-`classroom.service.example` is ready to copy into
-`/etc/systemd/system/classroom.service`:
+### 4. Running it: docker
 
 ```bash
-sudo cp classroom/classroom.service.example /etc/systemd/system/classroom.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now classroom
-journalctl -u classroom -f
+cd classroom
+docker compose up -d --build
+docker compose logs -f
 ```
 
-It runs as the user that owns the repository, because starting a student's lab
-means running `deploy/go2-student.sh`, which means talking to docker as
-someone in the `docker` group.
+`restart: unless-stopped` is the point: it comes back after a reboot without
+anyone needing root on the machine, which a systemd unit would.
+
+**The container is not a security boundary.** It holds the host's docker
+socket, because starting a student's lab *is* a docker command — and a
+process with that socket is root on the host. Running the app directly as a
+user in the `docker` group has exactly the same power. What the container
+buys is a restart policy, a pinned Python environment and the same
+operational shape as the student labs; it does not buy safety from itself.
+Keep port 8500 reachable only from the gateway.
+
+Three details in `docker-compose.yml` are load bearing:
+
+| | Why |
+|---|---|
+| repo mounted at the **same absolute path** (`/srv/MuJoCo-Go2`) | `go2-student.sh` writes host paths into `deploy/students/*.env`, and the **host** daemon resolves them later. Two different views of the path and a student's work directory mounts from nowhere. |
+| `network_mode: host` | The lab links come from reading this machine's addresses. On a bridge network they would be `172.x`, which means nothing to a student. |
+| `/usr/bin/tailscale` and its socket, read-only | Otherwise the console silently offers LAN links only. Tailscale's CLI is a static binary, so borrowing the host's copy beats adding an apt repository to the image. |
+
+No application code is copied into the image: the repository is mounted, so
+what the site serves — including `install/mac.sh` — is always this checkout,
+not what an image was built from three weeks ago.
+
+**systemd instead**, if you prefer it and have root:
+`classroom.service.example` is ready to copy to
+`/etc/systemd/system/classroom.service`. It runs as the repository's owner for
+the same docker-group reason.
 
 ## Running a class
 

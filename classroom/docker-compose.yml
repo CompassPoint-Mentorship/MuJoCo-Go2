@@ -1,0 +1,66 @@
+# The classroom site.
+#
+#   cd classroom && docker compose up -d --build
+#   docker compose logs -f
+#   docker compose down
+#
+# `restart: unless-stopped` is why this exists rather than a systemd unit:
+# it survives a reboot without anyone needing root on this machine.
+
+services:
+  classroom:
+    build:
+      context: ..
+      dockerfile: classroom/Dockerfile
+    image: go2-classroom:latest
+    container_name: go2-classroom
+    restart: unless-stopped
+
+    # The host's network, for two reasons. The app binds 8500 where the
+    # gateway expects it, and -- less obviously -- the lab links it prints
+    # come from reading this machine's own addresses, which inside a bridge
+    # network would be a 172.x address that means nothing to a student.
+    network_mode: host
+
+    # uid:gid of the repository's owner, so files this writes (the roster
+    # database, a new student's work directory) belong to the same user as
+    # everything else here rather than to root.
+    user: "1000:1000"
+    # The docker group, for the socket below. Named by number because group
+    # names do not survive the trip into a container.
+    group_add:
+      - "983"
+
+    volumes:
+      # Same path inside as outside. go2-student.sh writes absolute host
+      # paths into deploy/students/*.env, and the HOST daemon is what later
+      # resolves them -- so the two views have to agree, or a student's work
+      # directory would be created correctly and then mounted from nowhere.
+      - /srv/MuJoCo-Go2:/srv/MuJoCo-Go2
+      # Starting a student's lab is a docker command. This is host root in
+      # all but name; it is the reason this container is not a security
+      # boundary and must not be exposed to anyone but the gateway.
+      - /var/run/docker.sock:/var/run/docker.sock
+      # So `tailscale ip` works and the tailnet link is offered alongside the
+      # LAN one. The socket is where it asks, and the CLI is a static binary,
+      # so borrowing the host's copy beats adding another apt repository to
+      # the image. Without both, the console silently offers LAN links only.
+      - /var/run/tailscale:/var/run/tailscale:ro
+      - /usr/bin/tailscale:/usr/bin/tailscale:ro
+
+    env_file:
+      - ../.env
+
+    environment:
+      # Belt and braces: the compose file does not decide policy, .env does,
+      # but these two must never be wrong by accident.
+      GO2_BASE_URL: "${GO2_BASE_URL:-https://robo-dog.cpmentorship.org}"
+      GO2_CLASSROOM_DB: "/srv/MuJoCo-Go2/classroom/classroom.db"
+
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8500/healthz', timeout=5).read().strip()==b'ok' else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s

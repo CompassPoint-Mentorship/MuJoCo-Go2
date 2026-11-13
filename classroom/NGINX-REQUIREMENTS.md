@@ -17,6 +17,7 @@ landing page, a student page, a mentor console and a copy of a shell script.
 |---|---|
 | Upstream host | `bumblebee` — `192.168.1.215` (LAN) or `100.84.247.85` (tailnet) |
 | Upstream port | `8500`, plain HTTP |
+| What it is | a container (`go2-classroom`) on host networking, `restart: unless-stopped` |
 | Health check | `GET /healthz` → `200`, body `ok` |
 | Expected traffic | tens of requests per class session; one mentor, up to ~30 students |
 

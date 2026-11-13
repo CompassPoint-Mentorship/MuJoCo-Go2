@@ -135,3 +135,35 @@ def test_the_cli_is_what_the_server_script_calls(tmp_path):
     assert out.returncode == 0, out.stderr
     assert "added 01_lesson.py" in out.stdout
     assert (work / "01_lesson.py").exists()
+
+
+def test_handing_out_coursework_needs_no_simulator(tmp_path):
+    """`go2-course sync` runs where mujoco and numpy are not installed.
+
+    The classroom container is the real case: it copies notebooks and never
+    simulates anything. Importing the package used to pull in go2.api, so
+    seeding a new student failed there with `No module named 'numpy'`.
+    """
+    import subprocess
+    import sys
+    import textwrap
+
+    script = textwrap.dedent("""
+        import sys
+        class Blocked:
+            def find_module(self, name, path=None): return None
+            def find_spec(self, name, target=None, path=None):
+                if name.split('.')[0] in ('numpy', 'mujoco'):
+                    raise ImportError(f'{name} is not installed here')
+                return None
+        sys.meta_path.insert(0, Blocked())
+
+        import go2
+        from go2 import course
+        print(course.units_dir(course.BUNDLED).is_dir())
+        print('numpy' not in sys.modules, 'mujoco' not in sys.modules)
+    """)
+    out = subprocess.run([sys.executable, "-c", script], capture_output=True,
+                         text=True, cwd=str(tmp_path))
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.split() == ["True", "True", "True"], out.stdout
