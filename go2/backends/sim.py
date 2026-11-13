@@ -46,6 +46,11 @@ _VIEWER_DT = 0.02        # 50 fps window refresh
 _STAND_HEIGHT = 0.27     # metres, matches the model's "home" keyframe
 _OBSTACLE_PREFIX = "obs_"
 
+# How long to keep waiting after a requested recording should have finished:
+# the browser polls twice a second, then has to upload. Generous, because the
+# alternative is telling a student "nobody was listening" when somebody was.
+LISTEN_GRACE = 8.0
+
 _MACOS_HINT = (
     "\nOn macOS the MuJoCo viewer must own the main thread, so scripts that open\n"
     "a window have to be started with `mjpython` instead of `python`:\n\n"
@@ -297,6 +302,24 @@ class SimBackend(Backend):
 
     def say_again(self) -> str | None:
         return self.audio.replay()
+
+    def listen(self, seconds: float = 3.0) -> str | None:
+        """Ask the watching browser to record, and wait for the clip.
+
+        There is no microphone in this process: the dog is simulated and the
+        ears belong to whoever is watching it. So this raises a request the
+        panel sees on its next poll, then waits for a new clip to arrive.
+        Returns None if nobody was watching, rather than hanging.
+        """
+        before = self.audio.newest()
+        self.audio.ask_to_record(seconds)
+        deadline = time.monotonic() + seconds + LISTEN_GRACE
+        while time.monotonic() < deadline:
+            time.sleep(0.1)
+            newest = self.audio.newest()
+            if newest is not None and newest != before:
+                return newest
+        return None
 
     def say(self, data: bytes, content_type: str = "audio/webm") -> str:
         clip_id = self.audio.add(data, content_type)

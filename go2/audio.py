@@ -28,6 +28,11 @@ class AudioStore:
         self._playing: str | None = None
         self._seq = 0                 # bumps on every say(), so a viewer that
                                       # is polling knows to play it again
+        # A request for the BROWSER to record. The microphone is there, not
+        # here, so "the dog listens" means: raise a flag, let the panel see it
+        # on its next poll, and wait for the clip to come back.
+        self._listen_seq = 0
+        self._listen_seconds = 0.0
 
     def add(self, data: bytes, content_type: str = "audio/webm") -> str:
         if not data:
@@ -72,10 +77,28 @@ class AudioStore:
             self._seq += 1
             return clip
 
+    def ask_to_record(self, seconds: float) -> int:
+        """Ask whoever is watching to record `seconds` of microphone.
+
+        Returns the request number. Nothing happens if no browser is
+        watching -- there is no microphone in this process to fall back to.
+        """
+        with self._lock:
+            self._listen_seq += 1
+            self._listen_seconds = float(seconds)
+            return self._listen_seq
+
+    def newest(self) -> str | None:
+        """The most recently stored clip, whoever stored it."""
+        with self._lock:
+            return self._order[-1] if self._order else None
+
     def state(self) -> dict:
         with self._lock:
             return {"clip": self._playing, "seq": self._seq,
-                    "count": len(self._order)}
+                    "count": len(self._order),
+                    "listen_seq": self._listen_seq,
+                    "listen_seconds": self._listen_seconds}
 
     def ids(self) -> list[str]:
         with self._lock:

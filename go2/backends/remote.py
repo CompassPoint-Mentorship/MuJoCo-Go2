@@ -50,9 +50,10 @@ class RemoteBackend(Backend):
 
     # ----------------------------------------------------------- transport
 
-    def _get(self, path: str, **params) -> bytes:
+    def _get(self, path: str, _timeout: float | None = None, **params) -> bytes:
         query = ("?" + urllib.parse.urlencode(params)) if params else ""
-        with urllib.request.urlopen(f"{self.url}/{path}{query}", timeout=_TIMEOUT) as r:
+        with urllib.request.urlopen(f"{self.url}/{path}{query}",
+                                    timeout=_timeout or _TIMEOUT) as r:
             return r.read()
 
     def _json(self, path: str, **params) -> dict:
@@ -78,6 +79,13 @@ class RemoteBackend(Backend):
 
     def reset(self) -> None:
         self._get("cmd", reset=1)
+
+    def listen(self, seconds: float = 3.0) -> str | None:
+        # The service waits for the browser to record, so this request is
+        # open for as long as the recording takes. Its own timeout has to
+        # outlast that or the clip would arrive after we gave up on it.
+        raw = self._get("cmd", listen=seconds, _timeout=seconds + 30.0)
+        return json.loads(raw.decode()).get("clip")
 
     def backflip(self) -> None:
         # The service runs the animation and only answers once it has landed,

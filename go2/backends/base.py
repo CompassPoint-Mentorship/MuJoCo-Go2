@@ -56,6 +56,14 @@ class Backend(ABC):
         speaker. Real robot: the Go2's own speaker, over its audio service.
         """
 
+    def listen(self, seconds: float = 3.0) -> str | None:
+        """Record from a microphone and keep the clip. Returns its id.
+
+        Not abstract for the same reason as backflip(): a backend with no
+        ears should say so, not force every backend to grow them.
+        """
+        raise NotImplementedError("this dog cannot listen")
+
     def backflip(self) -> None:
         """One backwards somersault.
 

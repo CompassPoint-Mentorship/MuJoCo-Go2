@@ -361,3 +361,71 @@ def test_the_panel_plays_the_first_clip_recorded_into_it():
     page = web._PAGE
     assert "let lastSeq = null" in page
     assert "if (lastSeq === null) { lastSeq = a.seq; return; }" in page
+
+
+# ---------------------------------------------------------------------------
+# Listening (the microphone is in the browser, not in this process)
+# ---------------------------------------------------------------------------
+
+def test_listen_waits_for_the_browser_and_returns_the_clip(dog):
+    """dog.listen() asks the panel to record, then waits for what comes back."""
+    store = dog._backend.audio
+    before = store.state()["listen_seq"]
+
+    def pretend_to_be_the_panel():
+        # Poll like the page does, then upload as MediaRecorder would.
+        for _ in range(50):
+            if store.state()["listen_seq"] != before:
+                dog.say(b"RIFFpretend-this-is-a-voice", content_type="audio/webm")
+                return
+            time.sleep(0.05)
+
+    panel = threading.Thread(target=pretend_to_be_the_panel)
+    panel.start()
+    clip = dog.listen(0.2)
+    panel.join()
+
+    assert clip, "listen() did not return the clip the panel uploaded"
+    assert store.state()["listen_seconds"] == pytest.approx(0.2)
+    assert dog.say_again() == clip
+
+
+def test_listen_gives_up_when_nobody_is_watching(dog, monkeypatch):
+    """No panel open means no microphone. That must end, not hang."""
+    from go2.backends import sim as sim_module
+
+    monkeypatch.setattr(sim_module, "LISTEN_GRACE", 0.3)
+    started = time.monotonic()
+    assert dog.listen(0.1) is None
+    assert time.monotonic() - started < 3.0
+
+
+def test_the_panel_is_told_how_long_to_record(dog):
+    """The page learns about a request by polling /audio/state."""
+    import json
+    import socket
+    import urllib.request
+
+    from go2.web import serve_background
+
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    server, frames = serve_background(dog, host="127.0.0.1", port=port, fps=2)
+    try:
+        dog._backend.audio.ask_to_record(2.5)
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/audio/state") as r:
+            state = json.loads(r.read().decode())
+        assert state["listen_seconds"] == pytest.approx(2.5)
+        assert state["listen_seq"] >= 1
+    finally:
+        frames.stop()
+        server.shutdown()
+        server.server_close()
+
+
+def test_a_backend_without_ears_says_so():
+    from go2.backends.base import Backend
+
+    with pytest.raises(NotImplementedError, match="listen"):
+        Backend.listen(object())

@@ -133,11 +133,13 @@ const recBtn = document.getElementById('rec');
 const recState = document.getElementById('recstate');
 let recorder = null, chunks = [];
 
-recBtn.onclick = async () => {
-  if (recorder && recorder.state === 'recording') { recorder.stop(); return; }
+// `seconds` > 0 stops on its own -- that is how dog.listen() from a notebook
+// works, since the microphone is here in the browser and not in Python.
+async function startRecording(seconds) {
+  if (recorder && recorder.state === 'recording') return false;
   if (!navigator.mediaDevices || !window.MediaRecorder) {
     recState.textContent = 'recording needs a secure page (https or localhost)';
-    return;
+    return false;
   }
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -155,10 +157,23 @@ recBtn.onclick = async () => {
     };
     recorder.start();
     recBtn.textContent = '■ stop';
-    recState.textContent = 'recording...';
+    recState.textContent = seconds > 0
+      ? 'recording ' + seconds + 's for your notebook...'
+      : 'recording...';
+    if (seconds > 0) {
+      setTimeout(() => { if (recorder && recorder.state === 'recording') recorder.stop(); },
+                 seconds * 1000);
+    }
+    return true;
   } catch (err) {
     recState.textContent = 'microphone blocked: ' + err.name;
+    return false;
   }
+}
+
+recBtn.onclick = () => {
+  if (recorder && recorder.state === 'recording') { recorder.stop(); return; }
+  startRecording(0);        // 0 = until the button is pressed again
 };
 
 // --- playback ------------------------------------------------------------
@@ -172,7 +187,7 @@ const playBtn = document.getElementById('play');
 // the `if (a.clip)` branch -- but a panel opened before anything has been
 // recorded has no clip, so the baseline was never taken and the guard ate the
 // NEXT clip instead: every student's first recording, played to nobody.
-let lastSeq = null, lastClip = null;
+let lastSeq = null, lastClip = null, lastListen = null;
 
 // Browsers refuse to play audio on a page nobody has clicked yet, so a clip
 // sent from a notebook can arrive before the student has touched this panel
@@ -190,6 +205,14 @@ setInterval(async () => {
   try {
     const a = await (await fetch('audio/state')).json();
     if (a.clip && a.clip !== lastClip) { lastClip = a.clip; playBtn.disabled = false; }
+    // dog.listen() from a notebook raises listen_seq; the microphone is here,
+    // so the page is what actually records. Same first-poll baseline rule as
+    // the clip sequence below: never act on the state we arrived to.
+    if (lastListen === null) { lastListen = a.listen_seq; }
+    else if (a.listen_seq !== lastListen) {
+      lastListen = a.listen_seq;
+      startRecording(a.listen_seconds);
+    }
     if (lastSeq === null) { lastSeq = a.seq; return; }   // baseline, clip or not
     if (a.seq !== lastSeq) {
       lastSeq = a.seq;
@@ -419,12 +442,26 @@ def _handler(dog: Go2, frames: _Frames):
                 body = f'{{"x":{p.x:.4f},"y":{p.y:.4f},"yaw":{p.yaw:.4f}}}'.encode()
                 self._send(body, "application/json")
             elif url.path == "/cmd":
-                self._command(parse_qs(url.query))
+                q = parse_qs(url.query)
+                if "listen" in q:
+                    # Blocks while the browser records, then answers with the
+                    # clip, so a notebook's dog.listen() is one round trip.
+                    try:
+                        seconds = float(q["listen"][0])
+                    except ValueError:
+                        seconds = 3.0
+                    clip = dog.listen(seconds)
+                    body = ("null" if clip is None else '"' + clip + '"')
+                    self._send(f'{{"clip":{body}}}'.encode(), "application/json")
+                    return
+                self._command(q)
                 self._send(b"ok", "text/plain")
             elif url.path == "/audio/state":
                 st = _audio_store(dog).state()
-                body = (f'{{"clip":{"null" if st["clip"] is None else chr(34)+st["clip"]+chr(34)},'
-                        f'"seq":{st["seq"]},"count":{st["count"]}}}').encode()
+                clip = "null" if st["clip"] is None else '"' + st["clip"] + '"'
+                body = (f'{{"clip":{clip},"seq":{st["seq"]},"count":{st["count"]},'
+                        f'"listen_seq":{st["listen_seq"]},'
+                        f'"listen_seconds":{st["listen_seconds"]}}}').encode()
                 self._send(body, "application/json")
             elif url.path.startswith("/audio/"):
                 clip = _audio_store(dog).get(url.path[len("/audio/"):])

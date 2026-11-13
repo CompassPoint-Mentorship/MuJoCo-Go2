@@ -55,6 +55,10 @@ class RealBackend(Backend):
         # drives this over WebRTC on rt/api/audiohub/request, and the Go2
         # Pro has a speaker, so this needs no EDU hardware.
         raise NotImplementedError(_MESSAGE)
+    def listen(self, seconds: float = 3.0) -> str | None:
+        # Step 2: the Go2 has microphones of its own, so unlike the simulator
+        # this records on the robot rather than in the browser.
+        raise NotImplementedError(_MESSAGE)
     def backflip(self) -> None:
         # Step 2: sport API id 2043 on rt/api/sport/request. This one needs
         # more than a mapping -- clear space, a flat floor, and a human with

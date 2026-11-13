@@ -139,6 +139,22 @@ class Go2:
         data, guessed = _read_audio(audio)
         return self._backend.say(data, content_type or guessed)
 
+    def listen(self, seconds: float = 3.0) -> str | None:
+        """Record your voice from code. Returns the clip id, or None.
+
+            clip = dog.listen(3)     # records for 3 seconds
+            dog.say_again()          # and plays it back
+
+        The microphone is in the **browser**, not in Python -- a simulated
+        dog has no ears of its own. So this asks the panel watching the dog
+        to record, and waits for the clip to arrive. The panel says
+        "recording ... for your notebook" while it does.
+
+        Returns None if nobody was watching, or if the page could not use
+        the microphone (it needs permission, and https or localhost).
+        """
+        return self._backend.listen(seconds)
+
     def say_again(self) -> str | None:
         """Say the most recent clip again. Returns its id, or None if silent.
 
