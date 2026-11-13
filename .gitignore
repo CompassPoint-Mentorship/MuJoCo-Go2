@@ -6,11 +6,28 @@ venv/
 build/
 dist/
 .pytest_cache/
-# Student scratch output
+# Student scratch output: images and recordings a notebook drops beside the
+# work that made them (03_camera.py writes dog_view.png, for one). Pasted
+# screenshots land here too, which is why .jpg is on the list -- without it
+# a stray paste in the repo root is one `git add -A` from being committed.
+#
+# Images that belong to the PROJECT are named back in below. Order matters:
+# a later rule wins, so every exception has to come after the blanket.
 *.png
-!go2/assets/**/*.png
+*.jpg
+*.jpeg
+*.webp
 *.mp4
 *.npy
+
+# The vendored Go2 model's own textures.
+!go2/assets/**/*.png
+
+# Documentation images are written, not generated, so they are tracked.
+!docs/**/*.png
+!docs/**/*.jpg
+!docs/**/*.jpeg
+!docs/**/*.webp
 MUJOCO_LOG.TXT
 
 # Hosted mode: per-student tokens/ports and their work directories
