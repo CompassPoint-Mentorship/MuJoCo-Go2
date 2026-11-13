@@ -23,39 +23,40 @@ than in the launcher and again in the deployment script, where two copies
 of these rules would drift apart within a term:
 
     missing          copy it in, read-only
-    same as seed     nobody changed it, so replace it in place
-    anything else    leave it; the new version lands beside it as
-                     <name>.new.<ext>, and that one name is reused forever
+    ours             replace it with the current version, read-only
+    theirs           move their file to <name>.yours.<ext> and put the
+                     current example back at the name it belongs to
 
-**The material is handed over read-only** (mode 0444), and that is what makes
-the rest of this simple. A file a student cannot save over is a file that is
-still ours next term, so every release replaces it in place and the folder
-never grows. JupyterLab shows it as read-only, still runs every cell, and
-Duplicate makes a writable copy -- so "duplicate it before you change it" is
-one right-click, and their copy has a name we will never touch.
+**The material is handed over read-only** (mode 0444), and every other rule
+here follows from that. A file a student cannot save over is still ours next
+week, so "ours" is the normal case forever: each release replaces the example
+in place, under its own name, and the folder never grows. JupyterLab shows it
+as read-only, still runs every cell, and Duplicate makes a writable copy --
+so "duplicate it before you change it" is one right-click, and their copy has
+a name we will never touch. The notebook says so in a box under the title.
 
-The alternative, tried first, was a dated name per release: the update always
-landed and was visible in the file browser, but a term of fixes is a term of
-near-identical files and a student cannot tell which one the class is on. One
-reserved `.new` name costs that visibility and is worth it, because the
-pristine copy is now the one being updated.
+"Theirs" is the transition, not the routine: a work dir seeded before the
+lock existed, or a student who went around it. Their file is never destroyed
+and never silently kept either -- it moves aside, keeps its content and its
+write permission, and `sync` says where it went.
 
-Two failure modes drove this, and both lost work silently before:
+Two earlier designs are worth remembering, because both failed in ways that
+look like success:
 
-  * a fixed name the student had worked in meant the next update had nowhere
-    to go, and the old code skipped it -- so a fix stopped reaching exactly
-    the students who were furthest along. Read-only is the fix: they work in
-    a duplicate, which we never touch. If they unlock the spare copy and work
-    in it anyway, the update falls back to a dated name rather than vanishing.
-  * replacing a file in place is invisible. JupyterLab does not reload a
-    notebook that is already open, so a student with the tab open sees
-    yesterday's lesson. Nothing in a file system fixes that: the notebook
-    says so at the top, and `sync` prints what it changed.
+  * **copy if absent.** A fix never reached anyone who had already started.
+  * **leave theirs, put the new one beside it** -- first as `.updated`, then
+    dated to the minute when a student who had worked in that copy stopped
+    receiving updates at all. It worked, and it buried the class: four
+    near-identical notebooks in a folder, and no way to tell which one the
+    lesson was. Locking the example removes the need for any of it.
+
+What a lock cannot fix: JupyterLab does not reload a notebook that is already
+open, so a student with the tab open sees yesterday's lesson until they close
+it. The notebook says so, and `sync` prints what it changed.
 
 `.go2-seed` holds a copy of exactly what was last handed over. Without it
-there is no way to tell an edited file from an untouched one, and the only
-safe rule left is "never overwrite" -- which means a fix never reaches
-anyone who has already started.
+there is no way to tell our file from theirs, and the only safe rule left is
+"never overwrite" -- which is the first failure above.
 """
 
 from __future__ import annotations
@@ -66,7 +67,6 @@ import os
 import pathlib
 import shutil
 import sys
-import time
 
 SEED = ".go2-seed"
 HANDOUT_MODE = 0o444      # read-only: the student duplicates it to edit it
@@ -207,61 +207,57 @@ def sync(work: pathlib.Path, pack: pathlib.Path | None = None,
                 _place(src, kept, SEED_MODE)
             notes.append(f"updated {src.name} (you had not changed it)")
         else:
-            # Their copy differs from what we handed over, so it is theirs and
-            # it stays. The new version lands beside it under one reserved
-            # name, read-only like everything else -- so the release after
-            # this one replaces that file instead of adding another.
-            spare = work / f"{src.stem}.new{src.suffix}"
-            if spare.exists() and not _untouched_copies([spare], seed):
-                # They unlocked the spare copy and worked in it too. A dated
-                # name costs a file; dropping the update costs a lesson, and
-                # this only happens to a student who went out of their way.
-                target = _dated_name(work, src)
-            else:
-                target = spare
-            if not _same(src, target):
-                if not dry_run:
-                    _place(src, target, HANDOUT_MODE)
-                    _place(src, seed / target.name, SEED_MODE)
-                notes.append(f"kept your {src.name}; the new one is {target.name}")
-            stale = _untouched_copies(
-                [p for p in _spare_copies(work, src) if p != target], seed)
-            if stale:
-                if not dry_run:
-                    for old in stale:
-                        old.unlink()
-                        (seed / old.name).unlink(missing_ok=True)
-                notes.append(
-                    f"  (removed {len(stale)} earlier cop"
-                    f"{'y' if len(stale) == 1 else 'ies'} you had not changed)")
+            # Theirs. The example is replaced every release, so their work
+            # moves to a name of its own rather than standing in the way of
+            # it -- and keeps the write permission that made it theirs.
+            rescue = _rescue_name(work, src)
             if not dry_run:
+                dst.rename(rescue)
+                rescue.chmod(0o644)
+                _place(src, dst, HANDOUT_MODE)
                 _place(src, kept, SEED_MODE)
+            notes.append(f"your {src.name} is now {rescue.name}; "
+                         f"{src.name} is the current example again")
+
+        # Copies the old dated scheme left behind. The example at its own
+        # name is current now, so any of ours are superseded by definition;
+        # ones the student worked in are theirs and are left where they are.
+        stale = _untouched_copies(_spare_copies(work, src), seed)
+        if stale:
+            if not dry_run:
+                for old_copy in stale:
+                    old_copy.unlink()
+                    (seed / old_copy.name).unlink(missing_ok=True)
+            notes.append(
+                f"  (removed {len(stale)} older cop"
+                f"{'y' if len(stale) == 1 else 'ies'} of {src.name} "
+                "you had not changed)")
     return notes
 
 
 def _spare_copies(work: pathlib.Path, src: pathlib.Path) -> list[pathlib.Path]:
-    """Every copy of `src` we have ever left beside a student's own file.
+    """Copies of `src` that older releases left beside a student's own file.
 
-    The dated ones are history: releases before the material was handed over
-    read-only each left one behind. They are still tidied when untouched, so
-    a folder that collected them empties itself.
+    `.updated`, `.updated-<date>-<time>` and `.new` are all names this code
+    used to hand material out under. Nothing creates them any more, so they
+    are only ever cleaned up -- and only when untouched, which is what makes
+    a folder that collected a term of them empty itself again.
     """
     return sorted(set(work.glob(f"{src.stem}.new{src.suffix}"))
                   | set(work.glob(f"{src.stem}.updated*{src.suffix}")))
 
 
-def _dated_name(work: pathlib.Path, src: pathlib.Path) -> pathlib.Path:
-    """A name nothing in `work` is using. The last resort, not the rule.
+def _rescue_name(work: pathlib.Path, src: pathlib.Path) -> pathlib.Path:
+    """Where a student's own version of `src` goes when the example returns.
 
-    Only reached when the student has edited both their own copy and the
-    spare we left them, which takes unlocking a read-only file. Dated to the
-    minute so the newest sorts last in the file browser.
+    `.yours` says whose it is in the file browser, which is where they will
+    look for it. Numbered only if one is already there -- which means they
+    unlocked the example and edited it a second time.
     """
-    base = f"{src.stem}.updated-{time.strftime('%Y%m%d-%H%M')}"
-    candidate = work / f"{base}{src.suffix}"
+    candidate = work / f"{src.stem}.yours{src.suffix}"
     n = 2
-    while candidate.exists():            # two fixes in the same minute
-        candidate = work / f"{base}-{n}{src.suffix}"
+    while candidate.exists():
+        candidate = work / f"{src.stem}.yours-{n}{src.suffix}"
         n += 1
     return candidate
 

@@ -42,23 +42,22 @@ comparing it with the student's file says whether they have *touched* it.
 | Their file | What happens |
 |---|---|
 | missing | copied in, **read-only** |
-| identical to the seed — never edited | replaced in place |
-| edited, or from before the lock existed | **left alone**; the new version lands beside it as `<name>.new.ipynb`, and every later release replaces that |
+| ours — nobody could have changed it | replaced in place with the current version |
+| theirs — edited before the lock existed, or after going around it | moved to `<name>.yours.ipynb`, writable; the current example goes back at the original name |
 
 Everything is handed over read-only (mode 0444), and that is the whole trick.
-A student duplicates the example — right-click → **Duplicate** — and works in
-the copy, whose name we never touch; the original stays pristine, so a fix
-replaces it instead of adding a file. Cells still run in a read-only
-notebook; Jupyter only refuses to save it, with a "read-only" marker in the
-toolbar.
+A student duplicates the example — right-click → **Duplicate** — and edits
+and runs in the copy, whose name we never touch; the example stays pristine,
+so a release replaces it instead of adding a file. Cells still run in a
+read-only notebook; Jupyter only refuses to save it, with a "read-only"
+marker in the toolbar.
 
-This replaced a dated name per release. Dating it always landed and was
-visible in the file browser, but a term of fixes became a folder of
-`01_hello_dog.updated-...` files that nobody could tell apart — which is the
-failure this version exists to fix. Dated copies nobody opened are removed on
-the next sync; the ones a student worked in are theirs and stay. A dated name
-is still the fallback for a student who unlocks the spare copy and works in
-that one, because dropping their update would be worse.
+This replaced a copy-per-release scheme (`.updated`, then
+`.updated-<date>-<time>`). It always landed and was visible in the file
+browser, but a term of fixes became a folder of near-identical notebooks that
+nobody could tell apart — the failure this version exists to fix. Copies it
+left are removed on the next sync if nobody opened them; the ones a student
+worked in are theirs and stay.
 
 What read-only does not fix: **JupyterLab does not reload a notebook that is
 already open**. Nothing restarts — the work dir is a bind mount — but a tab

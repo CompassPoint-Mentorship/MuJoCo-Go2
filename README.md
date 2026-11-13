@@ -131,36 +131,37 @@ need a second install step, and a syllabus fix should not need a release.
 ### Updating the coursework on a laptop
 
 `go2-lab` applies the same rules as the server's `go2-student.sh sync`, every
-launch: the material is handed over **read-only**, so a notebook nobody has
-changed is simply replaced with the current one, and files the student made
-themselves are never looked at.
+launch. The material is handed over **read-only**, which makes the rule short:
+the example is replaced with the current version every time, in place, under
+its own name. Files the student made themselves are never looked at.
 
 Read-only is what keeps the folder clean. A student duplicates the example
-(right-click → **Duplicate** in JupyterLab) and works in the copy, which has
-a name we will never touch; the original stays pristine, so every fix lands
-in the same file instead of adding one. They can still run every cell in the
-read-only copy — Jupyter only refuses to save it.
+(right-click → **Duplicate** in JupyterLab) and edits and runs their cells in
+that copy, which has a name we will never touch; the example stays the
+example, so a fix lands in the same file instead of adding one. They can run
+every cell in the read-only copy too — Jupyter only refuses to save it.
 
 Where a student does own the example — a work folder seeded before the lock
-existed, or someone who went around it — the new version lands beside theirs
-under one reserved name, reused by every later release:
+existed, or someone who went around it — their file moves aside rather than
+standing in the way of the update, keeping its content and its write
+permission:
 
 ```
-[go2] kept your 01_hello_dog.ipynb; the new one is 01_hello_dog.new.ipynb
+[go2] your 01_hello_dog.ipynb is now 01_hello_dog.yours.ipynb; 01_hello_dog.ipynb is the current example again
 ```
 
-This replaced a dated name per release (`01_hello_dog.updated-20261113-0102.ipynb`).
-Dating it meant an update always had somewhere to land and showed up as a new
-file in the browser — but a term of fixes became a term of near-identical
-files, and a student could no longer tell which one the class was on. Copies
-from that scheme that nobody opened are tidied away on the next sync. The one
-case that still dates a file is a student who unlocked the spare copy and
-worked in that too: losing the update would be worse than one extra file.
+This replaced two earlier designs. "Copy if absent" meant a fix never reached
+anyone who had already started. Leaving their file alone and putting the new
+version beside it — first as `.updated`, then dated to the minute once a
+student who had worked in *that* copy stopped receiving updates — worked, and
+buried the class in four near-identical notebooks with no way to tell which
+one the lesson was. Copies left by that scheme are removed on the next sync
+if nobody opened them; the ones a student worked in are theirs and stay.
 
-The cost of replacing in place is that it is invisible: **JupyterLab does not
-reload a notebook that is already open**, so a student with the tab open sees
-yesterday's lesson until they close and reopen it. The notebook says so at the
-top, and `sync` prints what it changed.
+What a lock cannot fix: **JupyterLab does not reload a notebook that is
+already open**, so a student with the tab open sees yesterday's lesson until
+they close and reopen it. The notebook says so at the top, and `sync` prints
+what it changed.
 
 The comparison is against `.go2-seed` in the work folder — a copy of exactly
 what was last handed over. Without it there is no way to tell an edited file
