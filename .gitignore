@@ -49,3 +49,6 @@ go2/_build.py
 # The classroom site keeps its roster next to it; it is not source.
 classroom/*.db
 classroom/*.db-journal
+
+# Downloaded OAuth client files are secrets; they belong in .env, not here.
+client_secret_*.json
