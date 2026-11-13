@@ -60,11 +60,14 @@ _PAGE = """<!doctype html>
   /* The one thing on this panel that is news rather than furniture. Amber,
      so it reads as "look at me" against a dark panel without looking like
      an error. Hidden until there is something to say. */
-  #news { background:#3a2a05; border:1px solid #f2c94c; color:#ffe9a8;
-          border-radius:8px; padding:8px 12px; max-width:640px; text-align:center; }
-  #news button { background:#f2c94c; color:#1b1404; border-color:#f2c94c;
-                 font-weight:600; margin-left:8px; }
-  #news .done { color:#d6f5d0; }
+  /* Always present on a laptop, so "up to date" and "broken" never look the
+     same. Quiet when there is nothing new; amber when there is. */
+  #news { border:1px solid #333; color:#9aa0a6; border-radius:8px;
+          padding:6px 12px; max-width:640px; text-align:center; font-size:13px; }
+  #news button { padding:4px 10px; margin-left:8px; font-size:12px; }
+  #news.fresh { background:#3a2a05; border-color:#f2c94c; color:#ffe9a8; font-size:14px; }
+  #news.fresh button { background:#f2c94c; color:#1b1404; border-color:#f2c94c; font-weight:600; }
+  #news.done { border-color:#2f6b35; color:#d6f5d0; }
 </style>
 </head>
 <body>
@@ -72,8 +75,8 @@ _PAGE = """<!doctype html>
        checks in the background; nothing is applied until the student asks,
        because JupyterLab does not reload a notebook that is already open. -->
   <div id="news" hidden>
-    <span id="newstext"></span>
-    <button id="newsget">get it</button>
+    <span id="newstext">checking for new course material...</span>
+    <button id="newsget">check now</button>
   </div>
   <img id="view" alt="simulator view"/>
   <div id="pose">pose: --</div>
@@ -250,46 +253,73 @@ setInterval(async () => {
 }, 500);
 
 // --- new material from the class -----------------------------------------
-// Asks THIS service, which asked the class site in the background -- so the
-// poll is local and cheap, and a laptop with no network simply never shows
-// the flag. 404 means a hosted lab, where the mentor's sync does this job.
+// Asks THIS service, which asks the class site in the background -- so the
+// poll is local and cheap. A 404 means a hosted lab, where the mentor's sync
+// does this job, and the bar stays hidden for good.
+//
+// The bar is always shown on a laptop. Hiding it when there was nothing new
+// made "up to date" look exactly like "not working" -- a mentor took it for
+// a caching bug -- so now it says which one it is.
 const news = document.getElementById('news');
 const newsText = document.getElementById('newstext');
 const newsGet = document.getElementById('newsget');
+let newsMode = 'check';          // 'check' or 'get'
+function ago(t) {
+  if (!t) return 'not yet';
+  const m = Math.round((Date.now() / 1000 - t) / 60);
+  return m < 1 ? 'just now' : m === 1 ? '1 min ago' : m + ' min ago';
+}
+function showNews(s) {
+  news.hidden = false;
+  news.classList.remove('done');
+  const n = (s.new || []).length;
+  if (n > 0) {
+    news.classList.add('fresh');
+    newsText.textContent = n === 1 ? 'New from your class: ' + s.new[0]
+                                   : n + ' new files from your class';
+    newsGet.textContent = 'get it';
+    newsMode = 'get';
+  } else {
+    news.classList.remove('fresh');
+    newsText.textContent = s.online
+      ? 'course up to date \u00b7 checked ' + ago(s.checked)
+      : 'offline \u2014 using the course material you already have';
+    newsGet.textContent = 'check now';
+    newsMode = 'check';
+  }
+}
 async function checkNews() {
   try {
     const r = await fetch('course/status');
+    if (r.status === 404) { news.hidden = true; clearInterval(newsTimer); return; }
     if (!r.ok) return;
-    const s = await r.json();
-    const n = (s.new || []).length;
-    if (n > 0) {
-      newsText.textContent = n === 1
-        ? 'New from your class: ' + s.new[0]
-        : n + ' new files from your class';
-      newsGet.hidden = false;
-      news.hidden = false;
-    } else if (!newsText.classList.contains('done')) {
-      news.hidden = true;
-    }
+    if (!news.classList.contains('done')) showNews(await r.json());
   } catch (_) {}
 }
 newsGet.onclick = async () => {
   newsGet.disabled = true;
-  newsText.textContent = 'getting it...';
   try {
-    const r = await fetch('course/update', { method: 'POST' });
-    const out = await r.json();
-    newsText.classList.add('done');
-    newsText.textContent = (out.notes || []).join(' \u00b7 ') +
-      ' \u2014 if one of these is open, close it and open it again.';
-    newsGet.hidden = true;
+    if (newsMode === 'get') {
+      newsText.textContent = 'getting it...';
+      const out = await (await fetch('course/update', { method: 'POST' })).json();
+      news.classList.remove('fresh');
+      news.classList.add('done');
+      newsText.textContent = (out.notes || []).join(' \u00b7 ') +
+        ' \u2014 if one of these is open, close it and open it again.';
+      newsGet.textContent = 'check now';
+      newsMode = 'check';
+      setTimeout(() => news.classList.remove('done'), 20000);
+    } else {
+      newsText.textContent = 'checking...';
+      showNews(await (await fetch('course/check', { method: 'POST' })).json());
+    }
   } catch (_) {
     newsText.textContent = 'could not reach the class site; try again later';
   }
   newsGet.disabled = false;
 };
 checkNews();
-setInterval(checkNews, 60000);
+const newsTimer = setInterval(checkNews, 60000);
 
 setInterval(async () => {
   try {
@@ -481,6 +511,13 @@ def _handler(dog: Go2, frames: _Frames, watcher=None):
 
         def do_POST(self) -> None:
             url = urlparse(self.path)
+            if url.path == "/course/check":
+                if watcher is None:
+                    self._send(b'{"error":"not a laptop lab"}', "application/json", 404)
+                    return
+                body = {"enabled": True, **watcher.refresh()}
+                self._send(json.dumps(body).encode(), "application/json")
+                return
             if url.path == "/course/update":
                 if watcher is None:
                     self._send(b'{"error":"not a laptop lab"}', "application/json", 404)

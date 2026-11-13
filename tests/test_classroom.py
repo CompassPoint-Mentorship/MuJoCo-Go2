@@ -805,6 +805,21 @@ def test_the_panel_offers_news_only_on_a_laptop(tmp_path):
 
         with urllib.request.urlopen(f"http://127.0.0.1:{laptop_port}/") as r:
             assert 'id="news"' in r.read().decode()
+
+        # "check now" asks the class site right away instead of waiting for
+        # the next interval; with no site reachable it reports offline
+        # rather than failing, and keeps the news it already had.
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{laptop_port}/course/check", method="POST")
+        with urllib.request.urlopen(req) as r:
+            checked = json.loads(r.read())
+        assert checked["enabled"] is True
+        assert checked["new"] == ["homework_1.md"]
+
+        with pytest.raises(urllib.error.HTTPError) as no:
+            urllib.request.urlopen(urllib.request.Request(
+                f"http://127.0.0.1:{hosted_port}/course/check", method="POST"))
+        assert no.value.code == 404
     finally:
         for server, frames in ((hosted, f1), (laptop, f2)):
             frames.stop()
