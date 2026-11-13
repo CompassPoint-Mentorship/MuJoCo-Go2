@@ -352,3 +352,24 @@ def test_the_pages_make_no_third_party_requests(client):
         for marker in ("fonts.googleapis.com", "fonts.gstatic.com",
                        "cdn.jsdelivr.net", "googletagmanager", "google-analytics"):
             assert marker not in page.text, f"{path} reaches out to {marker}"
+
+
+def test_assets_are_versioned_so_a_cdn_cannot_pin_them(client):
+    """Cloudflare cached the old stylesheet for four hours against new HTML.
+
+    The page is dynamic and the assets are not, so the version has to live in
+    the asset URL; nothing else gets a change past an edge cache reliably.
+    """
+    import re
+
+    page = client.get("/").text
+    for asset in ("style.css", "logo.webp", "favicon.ico"):
+        assert re.search(rf"{re.escape(asset)}\?v=[0-9a-f]{{6,}}", page), \
+            f"{asset} is referenced without a version"
+
+    versions = set(re.findall(r"\?v=([0-9a-f]+)", page))
+    assert len(versions) == 1, f"one build, one version: {versions}"
+
+    r = client.get(f"/static/style.css?v={versions.pop()}")
+    assert r.status_code == 200
+    assert "max-age" in r.headers.get("cache-control", "")

@@ -38,6 +38,38 @@ from .settings import Settings
 HERE = pathlib.Path(__file__).resolve().parent
 
 
+def static_version() -> str:
+    """A short token that changes whenever a file under static/ does.
+
+    Every asset URL carries it, which is the only reliable way to ship a
+    stylesheet change through a CDN. Cloudflare caches .css, .woff2 and
+    images for hours whether or not the origin asked it to -- the first
+    rebrand of this site was invisible for exactly that reason, with the edge
+    serving the previous stylesheet against the new HTML.
+    """
+    import hashlib
+
+    digest = hashlib.sha256()
+    for path in sorted((HERE / "static").rglob("*")):
+        if path.is_file():
+            stat = path.stat()
+            digest.update(f"{path.name}{stat.st_mtime_ns}{stat.st_size}".encode())
+    return digest.hexdigest()[:10]
+
+
+class VersionedStatic(StaticFiles):
+    """Static files that say how long they may be kept.
+
+    Safe to cache hard, because the URL carries a version: a changed file is
+    a different URL, so nothing has to expire for a change to arrive.
+    """
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "public, max-age=604800"
+        return response
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     db.init(settings.db_path)
@@ -66,9 +98,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         https_only=settings.base_url.startswith("https://"),
         max_age=14 * 24 * 3600,
     )
-    app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
+    app.mount("/static", VersionedStatic(directory=HERE / "static"), name="static")
     templates = Jinja2Templates(directory=str(HERE / "templates"))
     templates.env.globals["settings"] = settings
+    templates.env.globals["v"] = static_version()
 
     # ------------------------------------------------------------- helpers
 

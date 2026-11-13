@@ -13,9 +13,10 @@
  *
  * One stylesheet, no framework, no build step: this site is five pages and
  * has to keep working for a term without anyone minding it.
+ *
+ * The font file is linked from the page rather than @import-ed here, so that
+ * it carries the same ?v= token as everything else and a CDN cannot pin it.
  */
-
-@import url('/static/fonts/lora.css');
 
 :root {
   /* From the logo */

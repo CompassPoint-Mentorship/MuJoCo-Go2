@@ -5,18 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}Robo Dog — CompassPoint Mentorship{% endblock %}</title>
 <meta name="description" content="{% block description %}Program a robot dog. A CompassPoint Mentorship course: real Python, a simulated Unitree Go2, and the same code that drives the real thing.{% endblock %}">
-<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/fonts/lora.css?v={{ v }}">
+<link rel="stylesheet" href="/static/style.css?v={{ v }}">
 {# The organisation's own icons, byte-for-byte the ones cpmentorship.org
    serves, so a browser tab or a bookmark looks like the same family. #}
-<link rel="icon" href="/static/brand/favicon.ico" sizes="any">
-<link rel="icon" href="/static/brand/icon.png" type="image/png" sizes="512x512">
-<link rel="apple-touch-icon" href="/static/brand/apple-icon.png" sizes="180x180">
+<link rel="icon" href="/static/brand/favicon.ico?v={{ v }}" sizes="any">
+<link rel="icon" href="/static/brand/icon.png?v={{ v }}" type="image/png" sizes="512x512">
+<link rel="apple-touch-icon" href="/static/brand/apple-icon.png?v={{ v }}" sizes="180x180">
 <meta name="theme-color" content="#24282b">
 </head>
 <body>
 <header class="bar">
   <a class="brand" href="/">
-    <img src="/static/brand/logo.webp" alt="CompassPoint Mentorship">
+    <img src="/static/brand/logo.webp?v={{ v }}" alt="CompassPoint Mentorship">
     <span class="sub">Robo&nbsp;Dog</span>
   </a>
   <nav>
