@@ -165,7 +165,13 @@ recBtn.onclick = async () => {
 // speaks whether the clip was recorded here or sent from a notebook.
 const speaker = document.getElementById('speaker');
 const playBtn = document.getElementById('play');
-let lastSeq = -1, lastClip = null;
+// null means "we have not polled yet", and it must not start at a number.
+// The guard below skips playback on the first poll so that reloading the page
+// does not replay an old clip. The old code only took that baseline inside
+// the `if (a.clip)` branch -- but a panel opened before anything has been
+// recorded has no clip, so the baseline was never taken and the guard ate the
+// NEXT clip instead: every student's first recording, played to nobody.
+let lastSeq = null, lastClip = null;
 
 // Browsers refuse to play audio on a page nobody has clicked yet, so a clip
 // sent from a notebook can arrive before the student has touched this panel
@@ -183,10 +189,10 @@ setInterval(async () => {
   try {
     const a = await (await fetch('audio/state')).json();
     if (a.clip && a.clip !== lastClip) { lastClip = a.clip; playBtn.disabled = false; }
-    if (a.clip && a.seq !== lastSeq) {
-      // Not on the first poll: a page reload should not replay an old clip.
-      if (lastSeq !== -1) play(a.clip);
+    if (lastSeq === null) { lastSeq = a.seq; return; }   // baseline, clip or not
+    if (a.seq !== lastSeq) {
       lastSeq = a.seq;
+      if (a.clip) play(a.clip);
     }
   } catch (_) {}
 }, 500);

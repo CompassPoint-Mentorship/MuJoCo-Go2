@@ -274,3 +274,19 @@ def test_audio_store_drops_the_oldest_clips(dog):
     for i in range(MAX_CLIPS + 5):
         dog.say(f"clip {i}".encode())
     assert len(dog._backend.audio.ids()) == MAX_CLIPS
+
+
+def test_the_panel_plays_the_first_clip_recorded_into_it():
+    """A fresh panel has no clip, and must still play the first recording.
+
+    The page skips playback on its first poll so that reloading does not
+    replay an old clip. That baseline has to be taken whether or not a clip
+    exists yet -- when it was taken only inside the `if (a.clip)` branch, a
+    panel opened before anything was recorded never took one, and the guard
+    swallowed the student's first recording instead.
+    """
+    from go2 import web
+
+    page = web._PAGE
+    assert "let lastSeq = null" in page
+    assert "if (lastSeq === null) { lastSeq = a.seq; return; }" in page
