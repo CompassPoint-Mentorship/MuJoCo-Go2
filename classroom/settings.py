@@ -59,6 +59,11 @@ class Settings:
     # The public name students use for the install line. It is a mirror of
     # the same script GitHub serves, so the path deliberately matches.
     install_path: str = "/CompassPoint-Mentorship/MuJoCo-Go2/main/install/mac.sh"
+    # Whose X-Forwarded-* headers to believe. Anyone who can open a socket to
+    # this port can claim any client address and any scheme, so this is the
+    # gateway's address and nobody else's. "*" trusts every caller, which is
+    # only safe when nothing but the proxy can reach the port at all.
+    trusted_proxy: str = "127.0.0.1,::1"
 
     @property
     def google_configured(self) -> bool:
@@ -92,4 +97,5 @@ class Settings:
             google_client_secret=os.environ.get("GOOGLE_CLIENT_SECRET", ""),
             teachers=frozenset(teachers),
             provision=os.environ.get("GO2_PROVISION", "1") != "0",
+            trusted_proxy=os.environ.get("GO2_TRUSTED_PROXY", "127.0.0.1,::1"),
         )

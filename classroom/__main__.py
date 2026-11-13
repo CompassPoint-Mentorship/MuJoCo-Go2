@@ -35,10 +35,12 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  mentors       {', '.join(sorted(settings.teachers)) or '(none set -- set GO2_TEACHERS)'}")
     print(f"  google        {'configured' if settings.google_configured else 'NOT configured (join codes still work)'}")
     print(f"  database      {settings.db_path}")
+    print(f"  trusts        {settings.trusted_proxy}  (X-Forwarded-* from here only)")
 
     uvicorn.run(create_app(settings) if not args.reload else "classroom.app:app",
                 host=args.host, port=args.port, reload=args.reload,
-                proxy_headers=True, forwarded_allow_ips="*")
+                proxy_headers=True,
+                forwarded_allow_ips=settings.trusted_proxy)
     return 0
 
 

@@ -32,9 +32,13 @@ $ curl -fsS http://192.168.1.215:8500/healthz     # -> ok
 $ curl -fsS http://100.84.247.85:8500/healthz     # -> ok
 ```
 
-It listens on `0.0.0.0:8500` while the gateway is being set up. Once you know
-the address nginx will connect from, say so and port 8500 will be firewalled
-to that host alone -- nothing else has any business reaching it.
+It listens on `0.0.0.0:8500`, and believes `X-Forwarded-*` only from
+**192.168.1.220** -- the address the live gateway actually connects from,
+confirmed from the upstream side. If nginx is moved, say so, or `"scheme"` in
+check 5 will quietly read `http` again.
+
+Port 8500 should also be firewalled to that address alone; it is open to the
+LAN at the moment.
 
 ---
 
@@ -173,15 +177,38 @@ curl -sS -D - -o /dev/null https://robo-dog.cpmentorship.org/CompassPoint-Mentor
 curl -fsSL https://robo-dog.cpmentorship.org/CompassPoint-Mentorship/MuJoCo-Go2/main/install/mac.sh | head -1
 #    -> #!/bin/bash
 
-# 5. https is being reported to the app: the session cookie must say Secure
-curl -sS -D - -o /dev/null https://robo-dog.cpmentorship.org/student | grep -i set-cookie
-#    -> set-cookie: session=...; path=/; Secure; HttpOnly; SameSite=lax
+# 5. https is being reported to the app
+curl -fsS https://robo-dog.cpmentorship.org/healthz.json
+#    -> {"ok":true,"scheme":"https","host":"robo-dog.cpmentorship.org",
+#        "client":"<the visitor's address>","forwarded_proto":"https", ...}
 ```
 
-Check 5 is the one that catches a missing `X-Forwarded-Proto`. If `Secure` is
-absent, the header is not arriving. (Use `-D -` rather than `-I` on the
-pages: they answer `GET`, while `/healthz` and the installer also answer
-`HEAD`.)
+Check 5 is the one that catches a missing `X-Forwarded-Proto`. `"scheme"`
+reads `https` only when the header arrives **and** the gateway's address is
+trusted (see below); anything else means the forwarding is not right yet.
+`"client"` should be the visitor's address, not the gateway's.
+
+Do not use the session cookie as evidence: it is marked `Secure` because the
+configured public name is https, whatever the request carried. An earlier
+version of this document said otherwise and was wrong.
+
+(Use `-D -` rather than `-I` on the pages: they answer `GET`, while
+`/healthz`, `/healthz.json` and the installer also answer `HEAD`.)
+
+### 4.1 One thing worth tidying: the visitor's address
+
+Through the live gateway, `"client"` in check 5 reads a Cloudflare address
+(e.g. `104.22.17.199`) rather than the visitor's, because Cloudflare is in
+front of nginx and `X-Forwarded-For` is being built from nginx's own view.
+
+Nothing depends on it -- the app authenticates people, not addresses -- but
+the access log is more useful with the real one. If you want it:
+
+```nginx
+# Cloudflare's ranges: https://www.cloudflare.com/ips/
+set_real_ip_from 173.245.48.0/20;   # ... and the rest of the list
+real_ip_header CF-Connecting-IP;
+```
 
 ---
 

@@ -284,3 +284,29 @@ def test_a_monitor_can_use_head(client):
     r = client.head("/CompassPoint-Mentorship/MuJoCo-Go2/main/install/mac.sh")
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/x-shellscript")
+
+
+def test_the_gateway_check_reports_the_scheme_it_really_saw(client):
+    """The check a reverse proxy is verified with, so it must not lie.
+
+    The session cookie cannot do this job: it is Secure because the public
+    name is https, even for a request that arrived over plain http. This
+    endpoint reports what the request actually carried.
+    """
+    r = client.get("/healthz.json")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    assert body["scheme"] == "https"          # the TestClient speaks https here
+    assert body["base_url"] == "https://robo-dog.example.org"
+    assert body["google"] is False
+
+
+def test_the_secure_cookie_is_not_evidence_of_forwarding(settings, monkeypatch):
+    """Written down because the gateway document used to claim it was."""
+    monkeypatch.setattr(labs.Labs, "_run", lambda *a, **k: "")
+    plain = TestClient(app_module.create_app(settings),
+                       base_url="http://not-https.example")
+    cookie = plain.get("/student").headers.get("set-cookie", "")
+    assert "secure" in cookie.lower(), (
+        "the Secure flag follows the configured public name, not the request")

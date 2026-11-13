@@ -296,6 +296,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def healthz():
         return PlainTextResponse("ok\n")
 
+    @app.api_route("/healthz.json", methods=["GET", "HEAD"])
+    def healthz_json(request: Request):
+        """What this request looks like by the time it gets here.
+
+        For whoever is configuring the reverse proxy. `scheme` is the one
+        worth looking at: it reads https only when X-Forwarded-Proto arrives
+        AND the proxy's address is trusted, so it is a real test of the
+        forwarding, which the session cookie is not -- that cookie is marked
+        Secure because of the configured public name, whatever the request
+        did.
+        """
+        client = request.client.host if request.client else None
+        return JSONResponse({
+            "ok": True,
+            "scheme": request.url.scheme,
+            "host": request.headers.get("host"),
+            "client": client,
+            "forwarded_proto": request.headers.get("x-forwarded-proto"),
+            "base_url": settings.base_url,
+            "google": settings.google_configured,
+        })
+
     return app
 
 
