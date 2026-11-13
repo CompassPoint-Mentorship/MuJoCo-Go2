@@ -276,3 +276,11 @@ def _csrf(client, path: str) -> str:
     match = re.search(r'name="csrf" value="([^"]+)"', page)
     assert match, f"no csrf field on {path}"
     return match.group(1)
+
+
+def test_a_monitor_can_use_head(client):
+    """Gateways and uptime checks send HEAD, and a 405 looks like an outage."""
+    assert client.head("/healthz").status_code == 200
+    r = client.head("/CompassPoint-Mentorship/MuJoCo-Go2/main/install/mac.sh")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/x-shellscript")

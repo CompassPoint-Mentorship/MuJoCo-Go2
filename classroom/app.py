@@ -270,8 +270,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # ------------------------------------------------------------ the script
 
-    @app.get(settings.install_path)
-    @app.get("/install/mac.sh")
+    # HEAD as well as GET: a gateway operator checks with `curl -I`, and an
+    # uptime monitor may only ever send HEAD. A 405 there reads as an outage.
+    @app.api_route(settings.install_path, methods=["GET", "HEAD"])
+    @app.api_route("/install/mac.sh", methods=["GET", "HEAD"])
     def install_script():
         """The installer, from this checkout, uncached.
 
@@ -290,7 +292,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             headers={"Cache-Control": "no-store, max-age=0",
                      "X-Content-Type-Options": "nosniff"})
 
-    @app.get("/healthz")
+    @app.api_route("/healthz", methods=["GET", "HEAD"])
     def healthz():
         return PlainTextResponse("ok\n")
 
