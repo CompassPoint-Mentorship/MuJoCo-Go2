@@ -167,6 +167,22 @@ lab that fails at the worst moment. `GO2_COURSE_URL=off` turns pulling off;
 naming a pack with `--course` or `$GO2_COURSE` skips it too, so a mentor
 testing a draft gets the draft.
 
+**A lab left open all week still hears about new material.** The simulator
+service checks the class site in the background every ten minutes, and when
+something is new an amber bar appears at the top of the dog panel — the pane
+that is always on screen beside the notebook:
+
+```
+New from your class: homework_1.md     [ get it ]
+```
+
+One click fetches it, hands it over, and says what arrived and to reopen any
+notebook that was open. It never applies anything by itself: JupyterLab does
+not reload an open notebook, so a file swapped under an open tab just looks
+like nothing happened. Hosted labs never show the bar — there, the mentor's
+sync is how material arrives. `GO2_COURSE_CHECK_EVERY=30` shortens the check
+for a mentor watching a change land.
+
 The simulator itself is *not* updated at launch — that is a 250 MB download,
 and the start of a lesson is the worst time for one. When the class runs a
 newer commit than the laptop, the launch says so and gives the install line.

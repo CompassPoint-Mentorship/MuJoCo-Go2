@@ -338,6 +338,12 @@ def run_lab(args: argparse.Namespace) -> int:
     token = os.urandom(24).hex()
 
     child_env = {**os.environ, **_render_backend_env()}
+    # Tells the simulator service it is on a laptop, and where the student's
+    # notebooks are: it watches the class site and offers new material in the
+    # panel. Not set when a pack was named on purpose -- a mentor testing a
+    # draft must not be offered the class's version over the top of it.
+    if not args.course_pack and not os.environ.get("GO2_COURSE"):
+        child_env["GO2_COURSE_WORK"] = str(work)
 
     # -P keeps the current directory off sys.path. Without it the service
     # imports whatever `go2` happens to sit in the folder the lab was started

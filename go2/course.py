@@ -79,6 +79,7 @@ import pathlib
 import shutil
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 
@@ -417,6 +418,107 @@ def pull(url: str | None = None, timeout: float = PULL_TIMEOUT,
         result.notes.append(f"course material from the class: {', '.join(bits)}")
     result.pack = dest
     return result
+
+
+def check(url: str | None = None, timeout: float = PULL_TIMEOUT,
+          root: pathlib.Path | None = None) -> dict:
+    """Is there anything new for this laptop? Looks, downloads nothing.
+
+    Compares the class site's hashes with the mirror on this laptop. Cheap
+    enough to run every few minutes -- a manifest is a few hundred bytes --
+    which is what lets a lab that has been open all week say "there is
+    something new" instead of waiting to be restarted.
+    """
+    status = {"online": False, "new": [], "withdrawn": [], "checked": time.time()}
+    base = (url or course_url()).rstrip("/")
+    if base.lower() in ("", "off", "none"):
+        return status
+    try:
+        manifest = json.loads(_fetch(f"{base}/manifest.json", timeout))
+    except (urllib.error.URLError, OSError, ValueError):
+        return status
+    course_id = str(manifest.get("id") or "course")
+    units = (root or installed_courses_dir()) / course_id / UNITS
+    wanted = {pathlib.PurePosixPath(str(e.get("name", ""))).name: str(e.get("sha256", ""))
+              for e in manifest.get("files") or []}
+    wanted.pop("", None)
+    for name, sha in sorted(wanted.items()):
+        target = units / name
+        if not (target.is_file() and _sha256(target) == sha):
+            status["new"].append(name)
+    if units.is_dir():
+        status["withdrawn"] = sorted(
+            p.name for p in units.iterdir()
+            if p.is_file() and not p.name.startswith(".") and p.name not in wanted)
+    status["online"] = True
+    status["engine_behind"] = engine_is_behind(
+        str((manifest.get("engine") or {}).get("commit") or ""))
+    return status
+
+
+class Watcher:
+    """Keeps an eye on the class site for a lab that stays open.
+
+    A student opens go2-lab on Monday and closes it on Friday; pulling only
+    at launch means a mentor's Wednesday fix reaches them next week. This
+    checks in the background and remembers the answer, so the panel can
+    show a flag -- but it never applies anything by itself. JupyterLab does
+    not reload an open notebook, so replacing one under an open tab is
+    invisible; the student clicks, and is told what arrived and what to
+    reopen.
+    """
+
+    def __init__(self, work: pathlib.Path, url: str | None = None,
+                 every: float = 600.0, root: pathlib.Path | None = None):
+        import threading
+
+        self.work = pathlib.Path(work)
+        self.url = url
+        self.every = every
+        self.root = root
+        self._lock = threading.Lock()
+        self._status: dict = {"online": False, "new": [], "withdrawn": [],
+                              "checked": 0.0}
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> "Watcher":
+        import threading
+
+        self._thread = threading.Thread(target=self._loop, name="course-watch",
+                                        daemon=True)
+        self._thread.start()
+        return self
+
+    def stop(self) -> None:
+        self._stop.set()
+
+    def _loop(self) -> None:
+        while not self._stop.is_set():
+            self.refresh()
+            self._stop.wait(self.every)
+
+    def refresh(self) -> dict:
+        found = check(self.url, root=self.root)
+        with self._lock:
+            # An offline check keeps the last good answer rather than
+            # pretending there is nothing new.
+            if found["online"] or not self._status["checked"]:
+                self._status = found
+        return self.status()
+
+    def status(self) -> dict:
+        with self._lock:
+            return dict(self._status)
+
+    def update_now(self) -> list[str]:
+        """Fetch what is new and hand it over. Returns lines to show."""
+        pulled = pull(self.url, root=self.root)
+        notes = list(pulled.notes)
+        if pulled.online:
+            notes += sync(self.work, resolve())
+        self.refresh()
+        return notes or ["already up to date"]
 
 
 def engine_is_behind(server_commit: str) -> bool:

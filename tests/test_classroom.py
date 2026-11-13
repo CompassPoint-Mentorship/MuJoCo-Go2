@@ -699,3 +699,115 @@ def test_pulling_can_be_turned_off_for_a_laptop(tmp_path, monkeypatch):
     monkeypatch.setattr(engine, "_fetch", lambda *a: called.append(a))
     result = engine.pull(root=tmp_path)
     assert not called and not result.online
+
+
+# --------------------------------- a lab left open all week still hears news
+
+def _class_site(client):
+    """A laptop's view of the class site, served by the test client."""
+    def fetch(url, timeout):
+        path = "/" + url.split("://", 1)[1].split("/", 1)[1]
+        r = client.get(path)
+        if r.status_code != 200:
+            raise OSError(f"HTTP {r.status_code}")
+        return r.content
+    return fetch
+
+
+def test_check_sees_new_material_without_downloading_it(client, tmp_path, monkeypatch):
+    from classroom.course import Pack
+    from go2 import course as engine
+
+    monkeypatch.setattr(engine, "_fetch", _class_site(client))
+    root = tmp_path / "courses"
+    engine.pull("https://x/course", root=root)                 # up to date
+
+    assert engine.check("https://x/course", root=root)["new"] == []
+
+    Pack(client.settings.course_pack).write("homework_1.md", b"# hw\n")
+    status = engine.check("https://x/course", root=root)
+
+    assert status["new"] == ["homework_1.md"]
+    assert not (root / "go2-intro" / "units" / "homework_1.md").exists(), \
+        "a check must look, not fetch"
+
+
+def test_the_flag_and_the_button_deliver_into_the_students_folder(client, tmp_path, monkeypatch):
+    """The whole loop: mentor publishes, flag appears, student clicks, file lands."""
+    from classroom.course import Pack
+    from go2 import course as engine
+
+    monkeypatch.setattr(engine, "_fetch", _class_site(client))
+    root = tmp_path / "courses"
+    monkeypatch.setenv("GO2_HOME", str(tmp_path))            # resolve() finds the mirror
+    work = tmp_path / "notebooks"
+    engine.pull("https://x/course", root=root)
+    engine.sync(work, engine.resolve())
+
+    watcher = engine.Watcher(work, url="https://x/course", root=root)
+    assert watcher.refresh()["new"] == []
+
+    Pack(client.settings.course_pack).write("homework_1.md", b"# hw\n")
+    assert watcher.refresh()["new"] == ["homework_1.md"]       # the flag
+
+    notes = watcher.update_now()                               # the button
+
+    assert (work / "homework_1.md").read_bytes() == b"# hw\n"
+    assert (work / "homework_1.md").stat().st_mode & 0o777 == 0o444
+    assert any("homework_1.md" in n for n in notes)
+    assert watcher.status()["new"] == [], "the flag should clear itself"
+
+
+def test_an_offline_check_does_not_hide_news_already_found(tmp_path, monkeypatch):
+    """Losing the network should not make the flag disappear."""
+    from go2 import course as engine
+
+    watcher = engine.Watcher(tmp_path, url="https://x/course", root=tmp_path)
+    watcher._status = {"online": True, "new": ["homework_1.md"],
+                       "withdrawn": [], "checked": 1.0}
+    monkeypatch.setattr(engine, "_fetch",
+                        lambda *a: (_ for _ in ()).throw(OSError("offline")))
+
+    assert watcher.refresh()["new"] == ["homework_1.md"]
+
+
+def test_the_panel_offers_news_only_on_a_laptop(tmp_path):
+    """A hosted lab gets material from the mentor's sync, not from a flag."""
+    import json
+    import socket
+    import urllib.error
+    import urllib.request
+
+    from go2 import Go2
+    from go2 import course as engine
+    from go2.web import serve_background
+
+    def port():
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            return s.getsockname()[1]
+
+    dog = Go2(sim=True, viewer=False, realtime=False)
+    hosted_port, laptop_port = port(), port()
+    hosted, f1 = serve_background(dog, port=hosted_port, fps=2)
+    watcher = engine.Watcher(tmp_path, url="https://x/course", root=tmp_path)
+    watcher._status = {"online": True, "new": ["homework_1.md"],
+                       "withdrawn": [], "checked": 1.0}
+    laptop, f2 = serve_background(dog, port=laptop_port, fps=2, watcher=watcher)
+    try:
+        with pytest.raises(urllib.error.HTTPError) as no:
+            urllib.request.urlopen(f"http://127.0.0.1:{hosted_port}/course/status")
+        assert no.value.code == 404
+
+        with urllib.request.urlopen(f"http://127.0.0.1:{laptop_port}/course/status") as r:
+            body = json.loads(r.read())
+        assert body["enabled"] and body["new"] == ["homework_1.md"]
+
+        with urllib.request.urlopen(f"http://127.0.0.1:{laptop_port}/") as r:
+            assert 'id="news"' in r.read().decode()
+    finally:
+        for server, frames in ((hosted, f1), (laptop, f2)):
+            frames.stop()
+            server.shutdown()
+            server.server_close()
+        dog.close()

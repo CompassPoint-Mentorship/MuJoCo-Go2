@@ -20,6 +20,9 @@ from __future__ import annotations
 
 import argparse
 import io
+import json
+import pathlib
+import os
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -54,9 +57,24 @@ _PAGE = """<!doctype html>
   button { background:#222; color:#eee; border:1px solid #444; border-radius:6px;
            padding:8px 14px; font:inherit; cursor:pointer; }
   button:active { background:#333; }
+  /* The one thing on this panel that is news rather than furniture. Amber,
+     so it reads as "look at me" against a dark panel without looking like
+     an error. Hidden until there is something to say. */
+  #news { background:#3a2a05; border:1px solid #f2c94c; color:#ffe9a8;
+          border-radius:8px; padding:8px 12px; max-width:640px; text-align:center; }
+  #news button { background:#f2c94c; color:#1b1404; border-color:#f2c94c;
+                 font-weight:600; margin-left:8px; }
+  #news .done { color:#d6f5d0; }
 </style>
 </head>
 <body>
+  <!-- Laptop only: new course material from the class site. The service
+       checks in the background; nothing is applied until the student asks,
+       because JupyterLab does not reload a notebook that is already open. -->
+  <div id="news" hidden>
+    <span id="newstext"></span>
+    <button id="newsget">get it</button>
+  </div>
   <img id="view" alt="simulator view"/>
   <div id="pose">pose: --</div>
   <div class="row">
@@ -231,6 +249,48 @@ setInterval(async () => {
   } catch (_) {}
 }, 500);
 
+// --- new material from the class -----------------------------------------
+// Asks THIS service, which asked the class site in the background -- so the
+// poll is local and cheap, and a laptop with no network simply never shows
+// the flag. 404 means a hosted lab, where the mentor's sync does this job.
+const news = document.getElementById('news');
+const newsText = document.getElementById('newstext');
+const newsGet = document.getElementById('newsget');
+async function checkNews() {
+  try {
+    const r = await fetch('course/status');
+    if (!r.ok) return;
+    const s = await r.json();
+    const n = (s.new || []).length;
+    if (n > 0) {
+      newsText.textContent = n === 1
+        ? 'New from your class: ' + s.new[0]
+        : n + ' new files from your class';
+      newsGet.hidden = false;
+      news.hidden = false;
+    } else if (!newsText.classList.contains('done')) {
+      news.hidden = true;
+    }
+  } catch (_) {}
+}
+newsGet.onclick = async () => {
+  newsGet.disabled = true;
+  newsText.textContent = 'getting it...';
+  try {
+    const r = await fetch('course/update', { method: 'POST' });
+    const out = await r.json();
+    newsText.classList.add('done');
+    newsText.textContent = (out.notes || []).join(' \u00b7 ') +
+      ' \u2014 if one of these is open, close it and open it again.';
+    newsGet.hidden = true;
+  } catch (_) {
+    newsText.textContent = 'could not reach the class site; try again later';
+  }
+  newsGet.disabled = false;
+};
+checkNews();
+setInterval(checkNews, 60000);
+
 setInterval(async () => {
   try {
     const p = await (await fetch('pose')).json();
@@ -400,7 +460,7 @@ class _Frames:
         self._thread.join(timeout=2.0)
 
 
-def _handler(dog: Go2, frames: _Frames):
+def _handler(dog: Go2, frames: _Frames, watcher=None):
     # When a frame was last fetched, i.e. when someone was last looking.
     # A list because the handler closes over it and stamps it per request.
     last_frame_at = [0.0]
@@ -421,6 +481,13 @@ def _handler(dog: Go2, frames: _Frames):
 
         def do_POST(self) -> None:
             url = urlparse(self.path)
+            if url.path == "/course/update":
+                if watcher is None:
+                    self._send(b'{"error":"not a laptop lab"}', "application/json", 404)
+                    return
+                notes = watcher.update_now()
+                self._send(json.dumps({"notes": notes}).encode(), "application/json")
+                return
             if url.path != "/audio":
                 self._send(b"not found", "text/plain", 404)
                 return
@@ -447,6 +514,12 @@ def _handler(dog: Go2, frames: _Frames):
             url = urlparse(self.path)
             if url.path in ("", "/"):
                 self._send(_panel_page().encode(), "text/html; charset=utf-8")
+            elif url.path == "/course/status":
+                if watcher is None:
+                    self._send(b'{"enabled":false}', "application/json", 404)
+                else:
+                    body = {"enabled": True, **watcher.status()}
+                    self._send(json.dumps(body).encode(), "application/json")
             elif url.path == "/pose":
                 p = dog.pose()
                 body = f'{{"x":{p.x:.4f},"y":{p.y:.4f},"yaw":{p.yaw:.4f}}}'.encode()
@@ -589,6 +662,7 @@ def serve_background(
     height: int = 540,
     fps: int = 20,
     camera: str = "chase",
+    watcher=None,
 ):
     """Serve an EXISTING dog from a background thread; return (server, frames).
 
@@ -601,7 +675,7 @@ def serve_background(
     authenticated, so the port itself never needs to be exposed.
     """
     frames = _Frames(dog, width, height, fps, camera)
-    server = ThreadingHTTPServer((host, port), _handler(dog, frames))
+    server = ThreadingHTTPServer((host, port), _handler(dog, frames, watcher))
     server.daemon_threads = True
     thread = threading.Thread(target=server.serve_forever, daemon=True,
                               name=f"go2-web-{port}")
@@ -621,7 +695,8 @@ def serve(
     dog = Go2(sim=True, viewer=False, scene=scene)
     dog.stand()
     frames = _Frames(dog, width, height, fps, camera)
-    server = ThreadingHTTPServer((host, port), _handler(dog, frames))
+    watcher = _course_watcher()
+    server = ThreadingHTTPServer((host, port), _handler(dog, frames, watcher))
     shown = "127.0.0.1" if host in ("0.0.0.0", "") else host
     print(f"Go2 simulator on http://{shown}:{port}/   (Ctrl-C to stop)")
     if host in ("0.0.0.0", ""):
@@ -631,9 +706,36 @@ def serve(
     except KeyboardInterrupt:
         print("\nstopping...")
     finally:
+        if watcher:
+            watcher.stop()
         frames.stop()
         server.shutdown()
         dog.close()
+
+
+def _course_watcher():
+    """A background check for new course material -- on a laptop only.
+
+    The laptop launcher sets GO2_COURSE_WORK to the student's notebook folder.
+    A hosted lab never sets it: there the mentor's sync is how material
+    arrives, and a second route would only make two students in the same
+    class disagree about what they have.
+    """
+    work = os.environ.get("GO2_COURSE_WORK")
+    if not work:
+        return None
+    from . import course
+
+    if course.course_url().lower() in ("", "off", "none"):
+        return None
+    # Ten minutes by default: a manifest is a few hundred bytes, so this is
+    # about freshness, not cost. GO2_COURSE_CHECK_EVERY shortens it for a
+    # mentor checking that a change arrives.
+    try:
+        every = float(os.environ.get("GO2_COURSE_CHECK_EVERY", "600"))
+    except ValueError:
+        every = 600.0
+    return course.Watcher(pathlib.Path(work), every=max(every, 5.0)).start()
 
 
 def main() -> None:
