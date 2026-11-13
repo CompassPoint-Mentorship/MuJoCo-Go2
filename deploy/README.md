@@ -43,12 +43,22 @@ comparing it with the student's file says whether they have *touched* it.
 |---|---|
 | missing | copied in |
 | identical to the seed — never edited | replaced |
-| edited, or from before the seed existed | **left alone**; the new version lands beside it as `<name>.updated.ipynb` |
+| edited, or from before the seed existed | **left alone**; the new version lands beside it as `<name>.updated-<date>-<time>.ipynb` |
 
-The `.updated` copy gets the same protection on the next sync: once a student
-has edited it, it is theirs too and is never overwritten. Nothing restarts —
-the work dir is a bind mount — but a notebook already open in a tab keeps the
-old copy until it is closed and reopened.
+Every update gets a name nothing is using, which is what makes this safe to
+run repeatedly. A single fixed `.updated` name failed silently twice over: a
+student who had run a cell in that copy owned it, so the next fix had nowhere
+to go and was dropped, and replacing a file in place is invisible anyway —
+**JupyterLab does not reload a notebook that is already open**, so a student
+with the tab open sees yesterday's lesson with no sign that anything
+happened. A dated name always lands, sorts newest-last beside their own file,
+and appears in the file browser, which is the only signal they will notice.
+Copies they never opened are removed as newer ones supersede them, so the
+folder holds one.
+
+Nothing restarts — the work dir is a bind mount — but a tab that was already
+open still shows what it loaded. Tell students to **open the new file**
+rather than reload: their old tab is a different file now.
 
 The link is `http://<host>:<port>/lab?token=<token>` — the token *is* the
 login, so treat the link as a password and send it to that student only.
