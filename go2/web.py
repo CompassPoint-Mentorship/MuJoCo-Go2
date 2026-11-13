@@ -60,24 +60,35 @@ _PAGE = """<!doctype html>
   /* The one thing on this panel that is news rather than furniture. Amber,
      so it reads as "look at me" against a dark panel without looking like
      an error. Hidden until there is something to say. */
-  /* Always present on a laptop, so "up to date" and "broken" never look the
-     same. Quiet when there is nothing new; amber when there is. */
-  #news { border:1px solid #333; color:#9aa0a6; border-radius:8px;
-          padding:6px 12px; max-width:640px; text-align:center; font-size:13px; }
-  #news button { padding:4px 10px; margin-left:8px; font-size:12px; }
-  #news.fresh { background:#3a2a05; border-color:#f2c94c; color:#ffe9a8; font-size:14px; }
-  #news.fresh button { background:#f2c94c; color:#1b1404; border-color:#f2c94c; font-weight:600; }
-  #news.done { border-color:#2f6b35; color:#d6f5d0; }
+  /* The classroom strip: one place at the top of the simulator pane for
+     everything the class -- not the dog -- has to say. Items come from the
+     service; the page only knows how to draw an item, so a new classroom
+     feature needs no new script here. */
+  #classroom { width:100%; max-width:960px; display:flex; align-items:center;
+               gap:10px; flex-wrap:wrap; padding:6px 10px; border:1px solid #2b2f33;
+               border-radius:8px; background:#181b1e; font-size:13px; }
+  #cr-title { font-weight:600; color:#cfd4d8; margin-right:auto; }
+  #cr-items { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+  .cr-item { display:inline-flex; align-items:center; gap:8px; padding:3px 4px 3px 10px;
+             border-radius:6px; border:1px solid #333; color:#9aa0a6; }
+  .cr-item button { padding:3px 10px; font-size:12px; }
+  .cr-item.news  { background:#3a2a05; border-color:#f2c94c; color:#ffe9a8; }
+  .cr-item.news button  { background:#f2c94c; color:#1b1404; border-color:#f2c94c; font-weight:600; }
+  .cr-item.ok    { border-color:#2f6b35; color:#d6f5d0; }
+  .cr-item.alert { background:#3a1010; border-color:#e5484d; color:#ffd6d6; }
+  #cr-message { width:100%; color:#d6f5d0; font-size:12px; }
 </style>
 </head>
 <body>
-  <!-- Laptop only: new course material from the class site. The service
-       checks in the background; nothing is applied until the student asks,
-       because JupyterLab does not reload a notebook that is already open. -->
-  <div id="news" hidden>
-    <span id="newstext">checking for new course material...</span>
-    <button id="newsget">check now</button>
-  </div>
+  <!-- The classroom strip. Drawn from classroom/status: a title and a list of
+       items, each with a tone and perhaps a button. Hidden while there is
+       nothing to say, which on a laptop is never -- the course item is
+       always there, so "up to date" never looks like "broken". -->
+  <header id="classroom" hidden>
+    <span id="cr-title">Classroom</span>
+    <span id="cr-items"></span>
+    <span id="cr-message" hidden></span>
+  </header>
   <img id="view" alt="simulator view"/>
   <div id="pose">pose: --</div>
   <div class="row">
@@ -252,74 +263,67 @@ setInterval(async () => {
   } catch (_) {}
 }, 500);
 
-// --- new material from the class -----------------------------------------
-// Asks THIS service, which asks the class site in the background -- so the
-// poll is local and cheap. A 404 means a hosted lab, where the mentor's sync
-// does this job, and the bar stays hidden for good.
-//
-// The bar is always shown on a laptop. Hiding it when there was nothing new
-// made "up to date" look exactly like "not working" -- a mentor took it for
-// a caching bug -- so now it says which one it is.
-const news = document.getElementById('news');
-const newsText = document.getElementById('newstext');
-const newsGet = document.getElementById('newsget');
-let newsMode = 'check';          // 'check' or 'get'
-function ago(t) {
-  if (!t) return 'not yet';
-  const m = Math.round((Date.now() / 1000 - t) / 60);
-  return m < 1 ? 'just now' : m === 1 ? '1 min ago' : m + ' min ago';
+// --- the classroom strip ---------------------------------------------------
+// The service decides WHAT to say; this only knows how to draw an item:
+// {text, tone, action: {label, do}}. Text goes in with textContent, never
+// innerHTML -- some of it is file names that came from the class site.
+const cr = document.getElementById('classroom');
+const crTitle = document.getElementById('cr-title');
+const crItems = document.getElementById('cr-items');
+const crMessage = document.getElementById('cr-message');
+let crMessageTimer = null;
+
+function drawClassroom(s) {
+  const items = (s && s.items) || [];
+  if (!items.length) { cr.hidden = true; return; }
+  cr.hidden = false;
+  crTitle.textContent = s.title || 'Classroom';
+  crItems.replaceChildren(...items.map(item => {
+    const el = document.createElement('span');
+    el.className = 'cr-item ' + (item.tone || 'quiet');
+    const text = document.createElement('span');
+    text.textContent = item.text;
+    el.append(text);
+    if (item.action) {
+      const btn = document.createElement('button');
+      btn.textContent = item.action.label;
+      btn.onclick = () => classroomAction(item.action, btn, text);
+      el.append(btn);
+    }
+    return el;
+  }));
 }
-function showNews(s) {
-  news.hidden = false;
-  news.classList.remove('done');
-  const n = (s.new || []).length;
-  if (n > 0) {
-    news.classList.add('fresh');
-    newsText.textContent = n === 1 ? 'New from your class: ' + s.new[0]
-                                   : n + ' new files from your class';
-    newsGet.textContent = 'get it';
-    newsMode = 'get';
-  } else {
-    news.classList.remove('fresh');
-    newsText.textContent = s.online
-      ? 'course up to date \u00b7 checked ' + ago(s.checked)
-      : 'offline \u2014 using the course material you already have';
-    newsGet.textContent = 'check now';
-    newsMode = 'check';
-  }
+
+function sayInClassroom(message) {
+  crMessage.textContent = message;
+  crMessage.hidden = false;
+  clearTimeout(crMessageTimer);
+  crMessageTimer = setTimeout(() => { crMessage.hidden = true; }, 20000);
 }
-async function checkNews() {
+
+async function classroomAction(action, btn, text) {
+  btn.disabled = true;
+  if (action.busy) text.textContent = action.busy;
   try {
-    const r = await fetch('course/status');
-    if (r.status === 404) { news.hidden = true; clearInterval(newsTimer); return; }
-    if (!r.ok) return;
-    if (!news.classList.contains('done')) showNews(await r.json());
+    const r = await fetch('classroom/action/' + encodeURIComponent(action.do),
+                          { method: 'POST' });
+    const out = await r.json();
+    drawClassroom(out);
+    if (out.message) sayInClassroom(out.message);
+  } catch (_) {
+    sayInClassroom('could not reach the class site; try again later');
+  }
+  btn.disabled = false;
+}
+
+async function pollClassroom() {
+  try {
+    const r = await fetch('classroom/status');
+    if (r.ok) drawClassroom(await r.json());
   } catch (_) {}
 }
-newsGet.onclick = async () => {
-  newsGet.disabled = true;
-  try {
-    if (newsMode === 'get') {
-      newsText.textContent = 'getting it...';
-      const out = await (await fetch('course/update', { method: 'POST' })).json();
-      news.classList.remove('fresh');
-      news.classList.add('done');
-      newsText.textContent = (out.notes || []).join(' \u00b7 ') +
-        ' \u2014 if one of these is open, close it and open it again.';
-      newsGet.textContent = 'check now';
-      newsMode = 'check';
-      setTimeout(() => news.classList.remove('done'), 20000);
-    } else {
-      newsText.textContent = 'checking...';
-      showNews(await (await fetch('course/check', { method: 'POST' })).json());
-    }
-  } catch (_) {
-    newsText.textContent = 'could not reach the class site; try again later';
-  }
-  newsGet.disabled = false;
-};
-checkNews();
-const newsTimer = setInterval(checkNews, 60000);
+pollClassroom();
+setInterval(pollClassroom, 60000);
 
 setInterval(async () => {
   try {
@@ -491,6 +495,7 @@ class _Frames:
 
 
 def _handler(dog: Go2, frames: _Frames, watcher=None):
+    classroom = Classroom(watcher)
     # When a frame was last fetched, i.e. when someone was last looking.
     # A list because the handler closes over it and stamps it per request.
     last_frame_at = [0.0]
@@ -511,19 +516,15 @@ def _handler(dog: Go2, frames: _Frames, watcher=None):
 
         def do_POST(self) -> None:
             url = urlparse(self.path)
-            if url.path == "/course/check":
-                if watcher is None:
-                    self._send(b'{"error":"not a laptop lab"}', "application/json", 404)
+            if url.path.startswith("/classroom/action/"):
+                name = url.path[len("/classroom/action/"):]
+                handler = classroom.actions.get(name)
+                if handler is None:
+                    self._send(b'{"error":"no such action"}', "application/json", 404)
                     return
-                body = {"enabled": True, **watcher.refresh()}
+                message = handler()
+                body = {**classroom.status(), "message": message}
                 self._send(json.dumps(body).encode(), "application/json")
-                return
-            if url.path == "/course/update":
-                if watcher is None:
-                    self._send(b'{"error":"not a laptop lab"}', "application/json", 404)
-                    return
-                notes = watcher.update_now()
-                self._send(json.dumps({"notes": notes}).encode(), "application/json")
                 return
             if url.path != "/audio":
                 self._send(b"not found", "text/plain", 404)
@@ -551,12 +552,8 @@ def _handler(dog: Go2, frames: _Frames, watcher=None):
             url = urlparse(self.path)
             if url.path in ("", "/"):
                 self._send(_panel_page().encode(), "text/html; charset=utf-8")
-            elif url.path == "/course/status":
-                if watcher is None:
-                    self._send(b'{"enabled":false}', "application/json", 404)
-                else:
-                    body = {"enabled": True, **watcher.status()}
-                    self._send(json.dumps(body).encode(), "application/json")
+            elif url.path == "/classroom/status":
+                self._send(json.dumps(classroom.status()).encode(), "application/json")
             elif url.path == "/pose":
                 p = dog.pose()
                 body = f'{{"x":{p.x:.4f},"y":{p.y:.4f},"yaw":{p.yaw:.4f}}}'.encode()
@@ -748,6 +745,86 @@ def serve(
         frames.stop()
         server.shutdown()
         dog.close()
+
+
+class Classroom:
+    """What the strip at the top of the simulator pane says, and does.
+
+    Each feature contributes ITEMS -- {text, tone, action} -- and ACTIONS,
+    named callables a button can trigger. The page draws whatever it is
+    given, so adding a classroom feature (an announcement, an "I'm stuck"
+    button, progress) means adding an item here, not another script.
+
+    Tones: "quiet" for status, "news" for something to act on, "ok" for a
+    success, "alert" for a problem.
+    """
+
+    def __init__(self, watcher=None):
+        self.watcher = watcher
+        self.actions: dict = {}
+        if watcher is not None:
+            self.actions["course-check"] = self._course_check
+            self.actions["course-get"] = self._course_get
+
+    def status(self) -> dict:
+        items = []
+        if self.watcher is not None:
+            items += self._course_items()
+        return {"title": self._title(), "items": items}
+
+    # ------------------------------------------------------------- course
+
+    def _title(self) -> str:
+        if self.watcher is None:
+            return "Classroom"
+        try:
+            from . import course
+            meta = course.manifest(course.resolve()).get("course", {})
+            return str(meta.get("title") or "Classroom")
+        except Exception:  # noqa: BLE001 - a title is never worth an error
+            return "Classroom"
+
+    def _course_items(self) -> list[dict]:
+        st = self.watcher.status()
+        new = st.get("new") or []
+        items = []
+        if new:
+            text = (f"New from your class: {new[0]}" if len(new) == 1
+                    else f"{len(new)} new files from your class")
+            items.append({"id": "course", "tone": "news", "text": text,
+                          "action": {"label": "get it", "do": "course-get",
+                                     "busy": "getting it..."}})
+        elif st.get("online"):
+            items.append({"id": "course", "tone": "quiet",
+                          "text": f"course up to date \u00b7 checked {_ago(st.get('checked'))}",
+                          "action": {"label": "check now", "do": "course-check",
+                                     "busy": "checking..."}})
+        else:
+            items.append({"id": "course", "tone": "quiet",
+                          "text": ("offline \u2014 using the course material you already have"
+                                   if st.get("checked") else "checking for new course material..."),
+                          "action": {"label": "check now", "do": "course-check",
+                                     "busy": "checking..."}})
+        if st.get("engine_behind"):
+            items.append({"id": "engine", "tone": "news",
+                          "text": "A newer simulator is ready \u2014 run the install line again when you have a few minutes"})
+        return items
+
+    def _course_check(self) -> str | None:
+        self.watcher.refresh()
+        return None
+
+    def _course_get(self) -> str:
+        notes = self.watcher.update_now()
+        return (" \u00b7 ".join(notes) +
+                " \u2014 if one of these is open, close it and open it again.")
+
+
+def _ago(t) -> str:
+    if not t:
+        return "not yet"
+    minutes = int((time.time() - float(t)) // 60)
+    return "just now" if minutes < 1 else ("1 min ago" if minutes == 1 else f"{minutes} min ago")
 
 
 def _course_watcher():

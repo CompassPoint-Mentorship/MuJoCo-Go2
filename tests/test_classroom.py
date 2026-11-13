@@ -771,8 +771,12 @@ def test_an_offline_check_does_not_hide_news_already_found(tmp_path, monkeypatch
     assert watcher.refresh()["new"] == ["homework_1.md"]
 
 
-def test_the_panel_offers_news_only_on_a_laptop(tmp_path):
-    """A hosted lab gets material from the mentor's sync, not from a flag."""
+def test_the_classroom_strip_on_a_laptop_and_in_a_hosted_lab(tmp_path):
+    """One strip, items decided by the service; course items on laptops only.
+
+    A hosted lab gets material from the mentor's sync, so it has nothing to
+    say here yet -- an empty item list, and the strip stays hidden.
+    """
     import json
     import socket
     import urllib.error
@@ -787,6 +791,15 @@ def test_the_panel_offers_news_only_on_a_laptop(tmp_path):
             s.bind(("127.0.0.1", 0))
             return s.getsockname()[1]
 
+    def get(p, path):
+        with urllib.request.urlopen(f"http://127.0.0.1:{p}{path}") as r:
+            return json.loads(r.read())
+
+    def post(p, path):
+        req = urllib.request.Request(f"http://127.0.0.1:{p}{path}", method="POST")
+        with urllib.request.urlopen(req) as r:
+            return json.loads(r.read())
+
     dog = Go2(sim=True, viewer=False, realtime=False)
     hosted_port, laptop_port = port(), port()
     hosted, f1 = serve_background(dog, port=hosted_port, fps=2)
@@ -795,30 +808,32 @@ def test_the_panel_offers_news_only_on_a_laptop(tmp_path):
                        "withdrawn": [], "checked": 1.0}
     laptop, f2 = serve_background(dog, port=laptop_port, fps=2, watcher=watcher)
     try:
-        with pytest.raises(urllib.error.HTTPError) as no:
-            urllib.request.urlopen(f"http://127.0.0.1:{hosted_port}/course/status")
-        assert no.value.code == 404
+        assert get(hosted_port, "/classroom/status")["items"] == []
 
-        with urllib.request.urlopen(f"http://127.0.0.1:{laptop_port}/course/status") as r:
-            body = json.loads(r.read())
-        assert body["enabled"] and body["new"] == ["homework_1.md"]
+        status = get(laptop_port, "/classroom/status")
+        course = next(i for i in status["items"] if i["id"] == "course")
+        assert course["tone"] == "news"
+        assert "homework_1.md" in course["text"]
+        assert course["action"]["do"] == "course-get"
 
         with urllib.request.urlopen(f"http://127.0.0.1:{laptop_port}/") as r:
-            assert 'id="news"' in r.read().decode()
+            page = r.read().decode()
+        import re
+        assert 'id="classroom"' in page
+        assert not re.search(r"\.(innerHTML|outerHTML)\s*\+?=|insertAdjacentHTML", page), \
+            "item text includes file names from the class site; textContent only"
 
-        # "check now" asks the class site right away instead of waiting for
-        # the next interval; with no site reachable it reports offline
-        # rather than failing, and keeps the news it already had.
-        req = urllib.request.Request(
-            f"http://127.0.0.1:{laptop_port}/course/check", method="POST")
-        with urllib.request.urlopen(req) as r:
-            checked = json.loads(r.read())
-        assert checked["enabled"] is True
-        assert checked["new"] == ["homework_1.md"]
+        # "check now" asks right away; with no class site reachable it keeps
+        # the news it already had rather than pretending there is none.
+        checked = post(laptop_port, "/classroom/action/course-check")
+        assert any("homework_1.md" in i["text"] for i in checked["items"])
 
+        # An action a lab does not have is refused, not guessed at.
         with pytest.raises(urllib.error.HTTPError) as no:
-            urllib.request.urlopen(urllib.request.Request(
-                f"http://127.0.0.1:{hosted_port}/course/check", method="POST"))
+            post(hosted_port, "/classroom/action/course-get")
+        assert no.value.code == 404
+        with pytest.raises(urllib.error.HTTPError) as no:
+            post(laptop_port, "/classroom/action/rm-rf")
         assert no.value.code == 404
     finally:
         for server, frames in ((hosted, f1), (laptop, f2)):

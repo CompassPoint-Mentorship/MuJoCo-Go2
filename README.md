@@ -167,14 +167,20 @@ lab that fails at the worst moment. `GO2_COURSE_URL=off` turns pulling off;
 naming a pack with `--course` or `$GO2_COURSE` skips it too, so a mentor
 testing a draft gets the draft.
 
-**A lab left open all week still hears about new material.** The simulator
-service checks the class site in the background every ten minutes, and when
-something is new an amber bar appears at the top of the dog panel — the pane
-that is always on screen beside the notebook:
+**A lab left open all week still hears about new material.** The top of the
+simulator pane — always on screen beside the notebook — is a **classroom
+strip**. The simulator service checks the class site in the background every
+ten minutes, and the strip says where things stand:
 
 ```
-New from your class: homework_1.md     [ get it ]
+Programming a Robot Dog      course up to date · checked 2 min ago  [ check now ]
+Programming a Robot Dog      New from your class: homework_1.md     [ get it ]
 ```
+
+The strip is built for more than this. The service sends a title and a list
+of items — text, a tone, perhaps a button — and the page draws whatever it is
+given (`go2/web.py`, class `Classroom`). An announcement or an "I'm stuck"
+button is a new item on the Python side, with no new JavaScript.
 
 One click fetches it, hands it over, and says what arrived and to reopen any
 notebook that was open. It never applies anything by itself: JupyterLab does
