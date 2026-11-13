@@ -39,6 +39,7 @@ from .labs import LabError, Labs
 from .settings import Settings
 
 HERE = pathlib.Path(__file__).resolve().parent
+HANDIN_MAX = 5 * 1024 * 1024      # a notebook is kilobytes; this is generous
 
 
 def static_version() -> str:
@@ -261,6 +262,174 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return Response(path.read_bytes(), media_type="application/octet-stream",
                         headers={"Cache-Control": "no-store, max-age=0"})
 
+    # ------------------------------------------------ laptops: sign in
+
+    def safe_next(target: str, default: str = "/student") -> str:
+        """Only somewhere on this site. "//evil.example" is a host, not a path."""
+        if (not target or not target.startswith("/") or target.startswith("//")
+                or "\\" in target or "\n" in target or "\r" in target):
+            return default
+        return target
+
+    def bearer(request: Request) -> dict | None:
+        header = request.headers.get("authorization", "")
+        if not header.lower().startswith("bearer "):
+            return None
+        return db.device_for_key(settings.db_path, header[7:].strip())
+
+    @app.post("/api/connect/start")
+    async def api_connect_start(request: Request):
+        """A laptop asks to be connected. No identity yet -- that is the point."""
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001
+            body = {}
+        try:
+            req = db.start_connect(settings.db_path, str(body.get("label", ""))[:80])
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=429)
+        return JSONResponse({
+            **req,
+            "verify_url": f"{settings.base_url.rstrip('/')}/connect?code={req['user_code']}",
+            "interval": 2,
+        }, headers={"Cache-Control": "no-store"})
+
+    @app.post("/api/connect/poll")
+    async def api_connect_poll(request: Request):
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001
+            body = {}
+        result = db.poll_connect(settings.db_path, str(body.get("device_code", "")))
+        return JSONResponse(result, headers={"Cache-Control": "no-store"})
+
+    @app.get("/connect", response_class=HTMLResponse)
+    def connect_page(request: Request, code: str = ""):
+        """Where the laptop's "sign in" button lands, in the student's browser.
+
+        Already signed in -- the usual case, since they came here for the
+        install line -- this is one click. It is never zero clicks: if it
+        were, anyone could send a student a link carrying THEIR OWN laptop's
+        code, and the student's browser would quietly connect someone else's
+        laptop to the student.
+        """
+        who = auth.current(request)
+        req = db.connect_request(settings.db_path, code)
+        if not who:
+            return page(request, "student_login.html", error=None,
+                        next=f"/connect?code={code}")
+        if who.is_teacher:
+            return page(request, "connect.html", req=None,
+                        error="This connects a student's laptop. You are signed in "
+                              "as a mentor -- sign out first, or have the student "
+                              "do it.")
+        return page(request, "connect.html", req=req, code=code,
+                    error=None if req else
+                    "That request has expired or was already used. Press "
+                    "\u201csign in\u201d on the laptop again.")
+
+    @app.post("/connect/decide")
+    def connect_decide(request: Request, code: str = Form(""),
+                       decision: str = Form(""), csrf: str = Form("")):
+        who = auth.current(request)
+        if not who or who.is_teacher or not who.slug or not _check_csrf(request, csrf):
+            return RedirectResponse("/student", status_code=303)
+        if not db.get(settings.db_path, who.slug):
+            return RedirectResponse("/student", status_code=303)
+        approve = decision == "yes"
+        done = db.decide_connect(settings.db_path, code, who.slug if approve else None)
+        return page(request, "connect.html", req=None, done=done, approved=approve)
+
+    @app.get("/api/me")
+    def api_me(request: Request):
+        device = bearer(request)
+        if not device:
+            return JSONResponse({"error": "not connected"}, status_code=401)
+        student = db.get(settings.db_path, device["slug"])
+        if not student:
+            return JSONResponse({"error": "not on the class list"}, status_code=401)
+        return JSONResponse({"slug": student.slug, "name": student.display})
+
+    # ------------------------------------------------ laptops: hand in
+
+    @app.post("/api/handin")
+    async def api_handin(request: Request, file: UploadFile = File(...)):
+        """A copy of one file, from a connected laptop, kept for the mentor.
+
+        A hand-in is a snapshot, never a sync: handing the same notebook in
+        twice keeps both, so there is no "which version wins" to explain.
+        """
+        import hashlib
+        import time as _t
+
+        device = bearer(request)
+        if not device:
+            return JSONResponse({"error": "this laptop is not signed in"}, status_code=401)
+        if not db.get(settings.db_path, device["slug"]):
+            return JSONResponse({"error": "not on the class list"}, status_code=401)
+        try:
+            name = safe_name(file.filename or "")
+        except CourseError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+        data = await file.read(HANDIN_MAX + 1)
+        if not data:
+            return JSONResponse({"error": "that file is empty"}, status_code=400)
+        if len(data) > HANDIN_MAX:
+            return JSONResponse({"error": f"over the {HANDIN_MAX // 1024 // 1024} MB "
+                                          "limit for a hand-in"}, status_code=413)
+        folder = settings.handin_dir / device["slug"]
+        folder.mkdir(parents=True, exist_ok=True)
+        stamp = _t.strftime("%Y%m%d-%H%M%S", _t.gmtime())
+        target = inside(folder, f"{stamp}_{name}")
+        n = 2
+        while target.exists():                      # two in the same second
+            target = inside(folder, f"{stamp}-{n}_{name}")
+            n += 1
+        target.write_bytes(data)
+        target.chmod(0o644)
+        row = db.add_handin(settings.db_path, slug=device["slug"], name=name,
+                            stored=target.name, size=len(data),
+                            sha256=hashlib.sha256(data).hexdigest(),
+                            device_id=device["id"])
+        return JSONResponse({"id": row["id"], "name": name,
+                             "at": row["created_at"]})
+
+    @app.get("/api/handins")
+    def api_handins(request: Request):
+        device = bearer(request)
+        if not device:
+            return JSONResponse({"error": "not connected"}, status_code=401)
+        return JSONResponse({"handins": [
+            {"id": h["id"], "name": h["name"], "at": h["created_at"], "size": h["size"]}
+            for h in db.handins_for(settings.db_path, device["slug"])]})
+
+    @app.get("/console/handin/{handin_id}")
+    def console_handin(request: Request, handin_id: int, download: str = ""):
+        if not teacher_only(request):
+            return RedirectResponse("/console", status_code=303)
+        h = db.handin(settings.db_path, handin_id)
+        if not h:
+            return PlainTextResponse("no such hand-in\n", status_code=404)
+        try:
+            path = inside(settings.handin_dir / h["slug"], h["stored"])
+        except CourseError:
+            return PlainTextResponse("no such hand-in\n", status_code=404)
+        if not path.is_file():
+            return PlainTextResponse("the file is missing on the server\n", status_code=404)
+        if download:
+            return Response(path.read_bytes(), media_type="application/octet-stream",
+                            headers={"Content-Disposition":
+                                     f'attachment; filename="{h["name"]}"'})
+        student = db.get(settings.db_path, h["slug"])
+        return page(request, "handin.html", h=h, student=student, body=_preview(path))
+
+    @app.post("/console/device/{slug}/{device_id}/revoke")
+    def console_revoke(request: Request, slug: str, device_id: int,
+                       csrf: str = Form("")):
+        if teacher_only(request) and _check_csrf(request, csrf):
+            db.revoke_device(settings.db_path, device_id, slug)
+        return RedirectResponse(f"/console/work/{slug}", status_code=303)
+
     @app.get("/privacy", response_class=HTMLResponse)
     def privacy(request: Request):
         """Required to publish the Google sign-in app, and right anyway.
@@ -298,7 +467,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/student/code")
     def student_code(request: Request, code: str = Form(""),
-                     csrf: str = Form("")):
+                     csrf: str = Form(""), next: str = Form("")):
         if not _check_csrf(request, csrf):
             return page(request, "student_login.html",
                         error="That page had been open a while. Try again.")
@@ -309,7 +478,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                               "your mentor -- codes look like K7P2-M4QX.")
         auth.sign_in(request, auth.Who(kind="student", email=student.email,
                                        name=student.display, slug=student.slug))
-        return RedirectResponse("/student", status_code=303)
+        return RedirectResponse(safe_next(next), status_code=303)
 
     @app.get("/console", response_class=HTMLResponse)
     def console(request: Request):
@@ -505,7 +674,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 except (CourseError, OSError) as exc:
                     body = f"(cannot show this file: {exc})"
         return page(request, "work.html", student=student, files=listing,
-                    work=work, shown=shown.name if shown else None, body=body)
+                    work=work, shown=shown.name if shown else None, body=body,
+                    handins=db.handins_for(settings.db_path, slug) if student else [],
+                    devices=db.devices_for(settings.db_path, slug) if student else [])
 
     @app.get("/console/work/{slug}/download")
     def console_download(request: Request, slug: str, name: str = ""):
@@ -571,7 +742,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def login_google(request: Request, next: str = "/student"):
         if oauth is None:
             return page(request, "needs_google.html", next=next)
-        request.session["next"] = next if next.startswith("/") else "/student"
+        request.session["next"] = safe_next(next)
         redirect_uri = f"{settings.base_url.rstrip('/')}/auth/google/callback"
         return await oauth.google.authorize_redirect(request, redirect_uri)
 

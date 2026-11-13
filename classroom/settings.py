@@ -68,6 +68,8 @@ class Settings:
     # sync hands out. Separate from the pack bundled in the go2 package,
     # which is what a laptop install gets and must stay pristine.
     course_pack: pathlib.Path = REPO_ROOT / "courses" / "live"
+    # Homework handed in from laptops: small files, kept per student.
+    handin_dir: pathlib.Path = REPO_ROOT / "handins"
 
     @property
     def google_configured(self) -> bool:
@@ -104,4 +106,6 @@ class Settings:
             trusted_proxy=os.environ.get("GO2_TRUSTED_PROXY", "127.0.0.1,::1"),
             course_pack=pathlib.Path(os.environ.get(
                 "GO2_COURSE_PACK", str(REPO_ROOT / "courses" / "live"))),
+            handin_dir=pathlib.Path(os.environ.get(
+                "GO2_HANDIN_DIR", str(REPO_ROOT / "handins"))),
         )

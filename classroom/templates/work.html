@@ -11,6 +11,47 @@
   Read-only. Nothing here changes what the student has.
 </p>
 
+<h2>Handed in</h2>
+{% if handins %}
+<table>
+  <tr><th>File</th><th>When</th><th>Size</th></tr>
+  {% for h in handins %}
+  <tr>
+    <td><a href="/console/handin/{{ h.id }}">{{ h.name }}</a></td>
+    <td class="note">{{ h.created_at }}</td>
+    <td class="note">{{ (h.size / 1024) | round(1) }} KB</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="note">Nothing handed in yet. A student hands in from the strip at the
+top of the simulator on their laptop, once the laptop is signed in.</p>
+{% endif %}
+
+<h2>Connected laptops</h2>
+{% if devices %}
+<table>
+  <tr><th>Laptop</th><th>Connected</th><th>Last seen</th><th></th></tr>
+  {% for d in devices %}
+  <tr>
+    <td>{{ d.label or '(unnamed)' }}</td>
+    <td class="note">{{ d.created_at }}</td>
+    <td class="note">{{ d.last_seen or 'never' }}</td>
+    <td>
+      <form method="post" action="/console/device/{{ student.slug }}/{{ d.id }}/revoke"
+            onsubmit="return confirm('Disconnect this laptop? It will need to sign in again.')">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="btn small ghost" type="submit">Disconnect</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="note">No laptop signed in.</p>
+{% endif %}
+
+<h2>Their hosted lab</h2>
 {% if not work %}
   <div class="card">
     <p class="note">

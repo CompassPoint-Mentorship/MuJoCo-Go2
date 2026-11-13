@@ -188,6 +188,33 @@ roster — a mentor testing next week's exercise is not a student.
 notebook is rendered as its cells' source, and any file can be downloaded.
 Nothing there can change a student's folder.
 
+## Laptops: signing in, and handing in
+
+A laptop works fully without signing in. Signing in adds the personal parts —
+for now, handing in homework.
+
+The strip at the top of the simulator has a **sign in** button. It opens
+`/connect?code=…` in the student's browser — the device flow a TV uses — where
+they are usually already signed in from getting the install line, so it is one
+click: *Connect this laptop as Ada? [Yes]*. Meanwhile the laptop asks
+`/api/connect/poll` every two seconds with a long code only it knows, and
+collects a key when they click.
+
+- **Never zero clicks.** Otherwise anyone could send a student a link carrying
+  *their own* laptop's code and the student's browser would connect it.
+- **The key never passes through a URL or the browser**, and the server keeps
+  only its SHA-256. A copied database cannot hand in as anyone.
+- **The key can hand in and read what is the student's.** It cannot sign in to
+  the website or open the console.
+- **Disconnect** is on the student's work page in the console. The laptop
+  notices the next time it is used and asks to sign in again.
+
+**Hand in** sends a *copy* of one of the student's own files (the read-only
+examples are left out of the list). Handing in twice keeps both, newest first —
+a snapshot, never a sync, so there is never a "which version wins" to explain.
+Hand-ins appear on the student's work page in the console, and are stored under
+`handins/<name>/` (`GO2_HANDIN_DIR`), 5 MB per file.
+
 ## Running a class
 
 1. Sign in at `/console` with Google. To add a co-mentor, put their Google

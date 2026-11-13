@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}{{ h.name }} — hand-in{% endblock %}
+{% block body %}
+<h1>{{ h.name }}</h1>
+<p class="lede">
+  Handed in by {{ student.display if student else h.slug }}
+  at {{ h.created_at }} · {{ (h.size / 1024) | round(1) }} KB
+</p>
+<p>
+  <a class="btn small ghost" href="/console/handin/{{ h.id }}?download=1">Download</a>
+  <a class="note" href="/console/work/{{ h.slug }}" style="margin-left:1rem">← their work</a>
+</p>
+<p class="note">
+  A notebook is shown as what the student wrote, cell by cell; outputs are
+  left out. This is a copy taken when they pressed hand in — it does not
+  change if they keep working.
+</p>
+<pre class="cmd"><code>{{ body }}</code></pre>
+{% endblock %}

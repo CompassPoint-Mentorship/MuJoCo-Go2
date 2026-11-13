@@ -45,6 +45,7 @@ def settings(tmp_path) -> Settings:
         # which they did, and which removed a live notebook before anyone
         # noticed. A test that writes outside tmp_path is a bug in the test.
         course_pack=tmp_path / "pack",
+        handin_dir=tmp_path / "handins",
     )
 
 
@@ -841,3 +842,210 @@ def test_the_classroom_strip_on_a_laptop_and_in_a_hosted_lab(tmp_path):
             server.shutdown()
             server.server_close()
         dog.close()
+
+
+# ------------------------------------------------ laptops: sign in, hand in
+
+def _laptop(client):
+    """A second client with no cookies: a laptop has only its key."""
+    return TestClient(client.app, base_url=client.settings.base_url)
+
+
+def _connect(client, slug="ada", name="Ada"):
+    """Run the device flow the way a laptop and a browser would. Returns the key."""
+    laptop = _laptop(client)
+    start = laptop.post("/api/connect/start", json={"label": "Ada's MacBook"}).json()
+    sign_in_as(client, kind="student", name=name, slug=slug)
+    page = client.get(f"/connect?code={start['user_code']}").text
+    assert "Connect this laptop" in page and "Ada&#39;s MacBook" in page
+    client.post("/connect/decide", data={"code": start["user_code"],
+                                         "decision": "yes", "csrf": SESSION_CSRF})
+    got = laptop.post("/api/connect/poll", json={"device_code": start["device_code"]}).json()
+    assert got["status"] == "approved"
+    return got["key"], start
+
+
+def test_a_laptop_signs_in_with_one_click_in_the_browser(client):
+    db.add(client.settings.db_path, slug="ada", display="Ada", email=None, created_by="t")
+    key, _ = _connect(client)
+
+    me = _laptop(client).get("/api/me", headers={"Authorization": f"Bearer {key}"})
+    assert me.json() == {"slug": "ada", "name": "Ada"}
+
+
+def test_opening_the_link_alone_connects_nothing(client):
+    """Never zero clicks: a link someone sends must not connect THEIR laptop."""
+    db.add(client.settings.db_path, slug="ada", display="Ada", email=None, created_by="t")
+    laptop = _laptop(client)
+    start = laptop.post("/api/connect/start", json={"label": "not Ada's"}).json()
+
+    sign_in_as(client, kind="student", name="Ada", slug="ada")
+    client.get(f"/connect?code={start['user_code']}")       # merely visited
+
+    poll = laptop.post("/api/connect/poll", json={"device_code": start["device_code"]})
+    assert poll.json()["status"] == "pending"
+
+
+def test_the_key_is_handed_over_once_and_only_to_the_laptop(client):
+    db.add(client.settings.db_path, slug="ada", display="Ada", email=None, created_by="t")
+    key, start = _connect(client)
+    laptop = _laptop(client)
+
+    again = laptop.post("/api/connect/poll", json={"device_code": start["device_code"]})
+    assert "key" not in again.json(), "the key was handed over twice"
+
+    # The short code is in a URL; it must not be enough to collect anything.
+    by_short = laptop.post("/api/connect/poll", json={"device_code": start["user_code"]})
+    assert by_short.json()["status"] == "unknown"
+
+    import sqlite3
+    conn = sqlite3.connect(client.settings.db_path)
+    stored = " ".join(str(v) for row in conn.execute("SELECT * FROM devices") for v in row)
+    pending = " ".join(str(v) for row in conn.execute("SELECT * FROM connect_requests") for v in row)
+    assert key not in stored and key not in pending, "the server kept the key itself"
+
+
+def test_a_mentor_cannot_connect_a_laptop_as_themselves(client):
+    laptop = _laptop(client)
+    start = laptop.post("/api/connect/start", json={"label": "x"}).json()
+    sign_in_as(client, kind="teacher", email=TEACHER)
+    client.post("/connect/decide", data={"code": start["user_code"],
+                                         "decision": "yes", "csrf": SESSION_CSRF})
+    poll = laptop.post("/api/connect/poll", json={"device_code": start["device_code"]})
+    assert poll.json()["status"] == "pending"
+
+
+def test_signing_in_from_the_connect_link_comes_back_to_it(client):
+    student = db.add(client.settings.db_path, slug="ada", display="Ada", email=None,
+                     created_by="t")
+    page = client.get("/connect?code=ABCD-EFGH").text
+    assert 'name="next" value="/connect?code=ABCD-EFGH"' in page
+    csrf = _csrf(client, "/connect?code=ABCD-EFGH")
+    r = client.post("/student/code", data={"code": student.join_code, "csrf": csrf,
+                                           "next": "/connect?code=ABCD-EFGH"},
+                    follow_redirects=False)
+    assert r.headers["location"] == "/connect?code=ABCD-EFGH"
+
+
+def test_next_cannot_send_anyone_off_this_site(client):
+    student = db.add(client.settings.db_path, slug="ada", display="Ada", email=None,
+                     created_by="t")
+    for hostile in ("//evil.example/x", "https://evil.example", "/\\evil.example", "javascript:x"):
+        csrf = _csrf(client, "/student")
+        r = client.post("/student/code", data={"code": student.join_code,
+                                               "csrf": csrf, "next": hostile},
+                        follow_redirects=False)
+        assert r.headers["location"] == "/student", hostile
+        client.cookies.clear()
+
+
+def test_hand_in_lands_with_the_mentor_and_nowhere_else(client):
+    path = client.settings.db_path
+    db.add(path, slug="ada", display="Ada", email=None, created_by="t")
+    db.add(path, slug="bob", display="Bob", email=None, created_by="t")
+    key, _ = _connect(client)
+    laptop = _laptop(client)
+    auth_header = {"Authorization": f"Bearer {key}"}
+
+    r = laptop.post("/api/handin", headers=auth_header,
+                    files={"file": ("my_square.ipynb",
+                                    b'{"cells":[{"cell_type":"code","source":["dog.move(vx=0.4)"]}]}',
+                                    "application/octet-stream")})
+    assert r.status_code == 200, r.text
+    handin_id = r.json()["id"]
+
+    sign_in_as(client, kind="teacher", email=TEACHER)
+    work = client.get("/console/work/ada").text
+    assert "my_square.ipynb" in work
+    assert "dog.move(vx=0.4)" in client.get(f"/console/handin/{handin_id}").text
+    assert "my_square.ipynb" not in client.get("/console/work/bob").text
+
+    sign_in_as(client, kind="student", name="Ada", slug="ada")
+    assert client.get(f"/console/handin/{handin_id}", follow_redirects=False).status_code == 303
+
+
+def test_hand_in_refuses_what_it_should(client):
+    db.add(client.settings.db_path, slug="ada", display="Ada", email=None, created_by="t")
+    key, _ = _connect(client)
+    laptop = _laptop(client)
+    h = {"Authorization": f"Bearer {key}"}
+
+    assert laptop.post("/api/handin", files={"file": ("a.py", b"x")}).status_code == 401
+    assert laptop.post("/api/handin", headers={"Authorization": "Bearer go2_guess"},
+                       files={"file": ("a.py", b"x")}).status_code == 401
+    assert laptop.post("/api/handin", headers=h,
+                       files={"file": ("run.sh", b"rm -rf /")}).status_code == 400
+    assert laptop.post("/api/handin", headers=h,
+                       files={"file": ("big.py", b"x" * (5 * 1024 * 1024 + 1))}).status_code == 413
+    assert laptop.post("/api/handin", headers=h,
+                       files={"file": ("../../escape.py", b"x")}).status_code == 200
+    stored = list((client.settings.handin_dir / "ada").iterdir())
+    assert all(p.parent == client.settings.handin_dir / "ada" for p in stored)
+
+
+def test_a_disconnected_laptop_can_no_longer_hand_in(client):
+    db.add(client.settings.db_path, slug="ada", display="Ada", email=None, created_by="t")
+    key, _ = _connect(client)
+    device = db.devices_for(client.settings.db_path, "ada")[0]
+
+    sign_in_as(client, kind="teacher", email=TEACHER)
+    client.post(f"/console/device/ada/{device['id']}/revoke", data={"csrf": SESSION_CSRF})
+
+    r = _laptop(client).post("/api/handin", headers={"Authorization": f"Bearer {key}"},
+                             files={"file": ("a.py", b"x")})
+    assert r.status_code == 401
+
+
+def test_the_laptop_side_end_to_end(client, tmp_path, monkeypatch):
+    """go2.classlink against the real routes: sign in, then hand in."""
+    import time
+
+    from go2 import classlink
+
+    db.add(client.settings.db_path, slug="ada", display="Ada", email=None, created_by="t")
+    monkeypatch.setenv("GO2_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("GO2_SITE_URL", client.settings.base_url)
+    laptop = _laptop(client)
+
+    def via_app(method, url, *, body=None, headers=None, timeout=8):
+        path = "/" + url.split("://", 1)[1].split("/", 1)[1]
+        r = laptop.request(method, path, content=body, headers=headers or {})
+        try:
+            return r.status_code, r.json()
+        except ValueError:
+            return r.status_code, {}
+
+    monkeypatch.setattr(classlink, "_request", via_app)
+    work = tmp_path / "notebooks"
+    work.mkdir()
+    (work / "my_square.ipynb").write_text('{"cells": []}')
+    example = work / "01_hello_dog.ipynb"
+    example.write_text('{"cells": []}')
+    example.chmod(0o444)                                  # the class's, not hers
+
+    link = classlink.Link(work)
+    assert link.candidates() == ["my_square.ipynb"], "examples are not hers to hand in"
+
+    url = link.start_connect()
+    code = url.split("code=", 1)[1]
+    sign_in_as(client, kind="student", name="Ada", slug="ada")
+    client.post("/connect/decide", data={"code": code, "decision": "yes",
+                                         "csrf": SESSION_CSRF})
+    for _ in range(50):
+        if link.who():
+            break
+        time.sleep(0.1)
+
+    me = link.who()
+    assert me and me["name"] == "Ada"
+    assert classlink.identity_path().stat().st_mode & 0o777 == 0o600
+    assert link.hand_in("my_square.ipynb") == "handed in my_square.ipynb ✓"
+    assert db.handins_for(client.settings.db_path, "ada")[0]["name"] == "my_square.ipynb"
+
+    # Disconnected from the console: the key is dead, and the laptop stops
+    # presenting it rather than failing the same way forever.
+    device = db.devices_for(client.settings.db_path, "ada")[0]
+    db.revoke_device(client.settings.db_path, device["id"], "ada")
+    with pytest.raises(PermissionError):
+        link.hand_in("my_square.ipynb")
+    assert link.who() is None

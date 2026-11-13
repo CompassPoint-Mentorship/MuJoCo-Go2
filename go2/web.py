@@ -72,6 +72,9 @@ _PAGE = """<!doctype html>
   .cr-item { display:inline-flex; align-items:center; gap:8px; padding:3px 4px 3px 10px;
              border-radius:6px; border:1px solid #333; color:#9aa0a6; }
   .cr-item button { padding:3px 10px; font-size:12px; }
+  .cr-item select { background:#222; color:#eee; border:1px solid #444;
+                    border-radius:6px; padding:3px 6px; font:inherit; font-size:12px;
+                    max-width:200px; }
   .cr-item.news  { background:#3a2a05; border-color:#f2c94c; color:#ffe9a8; }
   .cr-item.news button  { background:#f2c94c; color:#1b1404; border-color:#f2c94c; font-weight:600; }
   .cr-item.ok    { border-color:#2f6b35; color:#d6f5d0; }
@@ -285,9 +288,19 @@ function drawClassroom(s) {
     text.textContent = item.text;
     el.append(text);
     if (item.action) {
+      let select = null;
+      if (Array.isArray(item.action.choose)) {
+        select = document.createElement('select');
+        for (const option of item.action.choose) {
+          const o = document.createElement('option');
+          o.value = option; o.textContent = option;
+          select.append(o);
+        }
+        el.append(select);
+      }
       const btn = document.createElement('button');
       btn.textContent = item.action.label;
-      btn.onclick = () => classroomAction(item.action, btn, text);
+      btn.onclick = () => classroomAction(item.action, btn, text, select);
       el.append(btn);
     }
     return el;
@@ -301,29 +314,49 @@ function sayInClassroom(message) {
   crMessageTimer = setTimeout(() => { crMessage.hidden = true; }, 20000);
 }
 
-async function classroomAction(action, btn, text) {
+async function classroomAction(action, btn, text, select) {
   btn.disabled = true;
   if (action.busy) text.textContent = action.busy;
+  // A tab has to be opened inside the click itself: browsers -- Safari most
+  // of all -- block window.open once the click has waited on a fetch. So
+  // open a blank one now and point it at the sign-in page when we know it.
+  const tab = action.opens ? window.open('', '_blank') : null;
   try {
-    const r = await fetch('classroom/action/' + encodeURIComponent(action.do),
-                          { method: 'POST' });
+    const r = await fetch('classroom/action/' + encodeURIComponent(action.do), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ choice: select ? select.value : null }),
+    });
     const out = await r.json();
+    if (tab) { if (out.open) tab.location = out.open; else tab.close(); }
     drawClassroom(out);
     if (out.message) sayInClassroom(out.message);
+    schedulePoll(out);
   } catch (_) {
+    if (tab) tab.close();
     sayInClassroom('could not reach the class site; try again later');
   }
   btn.disabled = false;
 }
 
+// Every minute normally; every three seconds while something is waiting on
+// the student -- a sign-in they are finishing in another tab should show up
+// here the moment they click yes, not a minute later.
+let pollTimer = null;
+function schedulePoll(s) {
+  const waiting = ((s && s.items) || []).some(i => i.pending);
+  clearTimeout(pollTimer);
+  pollTimer = setTimeout(pollClassroom, waiting ? 3000 : 60000);
+}
 async function pollClassroom() {
+  let s = null;
   try {
     const r = await fetch('classroom/status');
-    if (r.ok) drawClassroom(await r.json());
+    if (r.ok) { s = await r.json(); drawClassroom(s); }
   } catch (_) {}
+  schedulePoll(s);
 }
 pollClassroom();
-setInterval(pollClassroom, 60000);
 
 setInterval(async () => {
   try {
@@ -522,8 +555,19 @@ def _handler(dog: Go2, frames: _Frames, watcher=None):
                 if handler is None:
                     self._send(b'{"error":"no such action"}', "application/json", 404)
                     return
-                message = handler()
-                body = {**classroom.status(), "message": message}
+                choice = None
+                try:
+                    length = int(self.headers.get("Content-Length") or 0)
+                except ValueError:
+                    length = 0
+                if 0 < length <= 4096:
+                    try:
+                        choice = json.loads(self.rfile.read(length)).get("choice")
+                    except (ValueError, AttributeError):
+                        choice = None
+                result = handler(choice)
+                extra = result if isinstance(result, dict) else {"message": result}
+                body = {**classroom.status(), **extra}
                 self._send(json.dumps(body).encode(), "application/json")
                 return
             if url.path != "/audio":
@@ -761,16 +805,70 @@ class Classroom:
 
     def __init__(self, watcher=None):
         self.watcher = watcher
+        self.link = None
         self.actions: dict = {}
         if watcher is not None:
+            from .classlink import Link
+
+            self.link = Link(watcher.work)
             self.actions["course-check"] = self._course_check
             self.actions["course-get"] = self._course_get
+            self.actions["class-connect"] = self._connect
+            self.actions["class-signout"] = self._sign_out
+            self.actions["class-handin"] = self._hand_in
 
     def status(self) -> dict:
         items = []
+        if self.link is not None:
+            items += self._identity_items()
         if self.watcher is not None:
             items += self._course_items()
         return {"title": self._title(), "items": items}
+
+    # ------------------------------------------------------------ identity
+
+    def _identity_items(self) -> list[dict]:
+        st = self.link.state()
+        me, pending = st["identity"], st["pending"]
+        if pending:
+            return [{"id": "me", "tone": "news", "pending": True,
+                     "text": f"Say yes in your browser \u2014 code {pending['user_code']}",
+                     "action": {"label": "open it again", "do": "class-connect",
+                                "opens": True}}]
+        if not me:
+            text = st["note"] or "Not signed in \u2014 sign in to hand in homework"
+            return [{"id": "me", "tone": "quiet", "text": text,
+                     "action": {"label": "sign in", "do": "class-connect",
+                                "opens": True, "busy": "opening your browser..."}}]
+        items = [{"id": "me", "tone": "ok", "text": f"{me.get('name') or 'signed in'} \u2713",
+                  "action": {"label": "sign out", "do": "class-signout"}}]
+        choices = self.link.candidates()
+        if choices:
+            items.append({"id": "handin", "tone": "quiet", "text": "hand in",
+                          "action": {"label": "send", "do": "class-handin",
+                                     "choose": choices, "busy": "sending..."}})
+        return items
+
+    def _connect(self, choice=None) -> dict:
+        try:
+            url = self.link.start_connect()
+        except Exception as exc:  # noqa: BLE001 - a network problem, said plainly
+            return {"message": f"could not reach the class site ({exc}); try again later"}
+        return {"open": url,
+                "message": "A browser tab opened \u2014 say yes there. "
+                           "This strip updates by itself."}
+
+    def _sign_out(self, choice=None) -> str:
+        self.link.sign_out()
+        return "signed out on this laptop"
+
+    def _hand_in(self, choice=None) -> str:
+        if not choice:
+            return "pick a file to hand in"
+        try:
+            return self.link.hand_in(str(choice))
+        except Exception as exc:  # noqa: BLE001
+            return f"not handed in: {exc}"
 
     # ------------------------------------------------------------- course
 
@@ -810,11 +908,11 @@ class Classroom:
                           "text": "A newer simulator is ready \u2014 run the install line again when you have a few minutes"})
         return items
 
-    def _course_check(self) -> str | None:
+    def _course_check(self, choice=None) -> str | None:
         self.watcher.refresh()
         return None
 
-    def _course_get(self) -> str:
+    def _course_get(self, choice=None) -> str:
         notes = self.watcher.update_now()
         return (" \u00b7 ".join(notes) +
                 " \u2014 if one of these is open, close it and open it again.")

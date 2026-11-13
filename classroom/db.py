@@ -46,6 +46,47 @@ CREATE INDEX IF NOT EXISTS students_email ON students (email);
 -- `added_by` is not decoration: opening the console means running docker on
 -- the class server, so who granted that, and when, is worth being able to
 -- answer later.
+-- A laptop connected to one student, by the device-sign-in flow. Only the
+-- key's hash is stored: the key itself exists on the laptop and nowhere else,
+-- so a copied database cannot be used to hand in as anyone.
+CREATE TABLE IF NOT EXISTS devices (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    key_hash    TEXT NOT NULL UNIQUE,
+    slug        TEXT NOT NULL,
+    label       TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL,
+    last_seen   TEXT NOT NULL DEFAULT '',
+    revoked     INTEGER NOT NULL DEFAULT 0
+);
+
+-- A laptop asking to be connected. `user_code` is short and appears in the
+-- browser; `device_code` is long and only the laptop knows it, so knowing the
+-- short code -- it is in a URL -- is not enough to collect the key.
+CREATE TABLE IF NOT EXISTS connect_requests (
+    device_code TEXT PRIMARY KEY,
+    user_code   TEXT NOT NULL UNIQUE,
+    label       TEXT NOT NULL DEFAULT '',
+    created_at  REAL NOT NULL,
+    expires_at  REAL NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'pending',   -- pending/approved/denied/collected
+    slug        TEXT,
+    key         TEXT                              -- held only until collected
+);
+
+-- Homework handed in from a laptop. Copies, never synced: two hand-ins of
+-- the same file are two rows, newest first.
+CREATE TABLE IF NOT EXISTS handins (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    slug        TEXT NOT NULL,
+    name        TEXT NOT NULL,
+    stored      TEXT NOT NULL,
+    size        INTEGER NOT NULL,
+    sha256      TEXT NOT NULL,
+    device_id   INTEGER,
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS handins_slug ON handins (slug, created_at);
+
 CREATE TABLE IF NOT EXISTS mentors (
     email       TEXT PRIMARY KEY,
     display     TEXT NOT NULL DEFAULT '',
@@ -205,6 +246,149 @@ def set_email(path: pathlib.Path, slug: str, email: str | None) -> None:
     with connect(path) as conn:
         conn.execute("UPDATE students SET email = ? WHERE slug = ?",
                      ((email or "").strip().lower() or None, slug))
+
+
+# ------------------------------------------------------------ laptops
+
+CONNECT_SECONDS = 600            # ten minutes to click "yes" in the browser
+
+
+def _hash_key(key: str) -> str:
+    import hashlib
+    return hashlib.sha256(key.encode()).hexdigest()
+
+
+def start_connect(path: pathlib.Path, label: str) -> dict:
+    """A laptop asks to be connected. Returns both codes."""
+    import time as _t
+
+    now = _t.time()
+    with connect(path) as conn:
+        conn.execute("DELETE FROM connect_requests WHERE expires_at < ?", (now,))
+        pending = conn.execute("SELECT COUNT(*) FROM connect_requests").fetchone()[0]
+        if pending > 500:
+            # Unauthenticated, so bounded: nobody needs five hundred laptops
+            # waiting for approval at once.
+            raise ValueError("too many laptops are waiting to connect; try again shortly")
+        device_code = secrets.token_urlsafe(32)
+        user_code = new_code()
+        conn.execute(
+            "INSERT INTO connect_requests (device_code, user_code, label,"
+            " created_at, expires_at) VALUES (?,?,?,?,?)",
+            (device_code, user_code, label.strip()[:80], now, now + CONNECT_SECONDS))
+    return {"device_code": device_code, "user_code": user_code,
+            "expires_in": CONNECT_SECONDS}
+
+
+def connect_request(path: pathlib.Path, user_code: str) -> dict | None:
+    """A pending request, by the short code a browser carries."""
+    import time as _t
+
+    tidy = re.sub(r"[^A-Z0-9]", "", (user_code or "").upper())
+    with connect(path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM connect_requests WHERE status = 'pending'"
+            " AND expires_at > ?", (_t.time(),)).fetchall()
+    for row in rows:
+        if re.sub(r"[^A-Z0-9]", "", row["user_code"]) == tidy:
+            return dict(row)
+    return None
+
+
+def decide_connect(path: pathlib.Path, user_code: str, slug: str | None) -> bool:
+    """A signed-in student says yes (slug) or no (None). True if it applied."""
+    req = connect_request(path, user_code)
+    if not req:
+        return False
+    with connect(path) as conn:
+        if slug is None:
+            conn.execute("UPDATE connect_requests SET status = 'denied'"
+                         " WHERE device_code = ?", (req["device_code"],))
+            return True
+        key = "go2_" + secrets.token_urlsafe(32)
+        conn.execute(
+            "INSERT INTO devices (key_hash, slug, label, created_at)"
+            " VALUES (?,?,?,?)", (_hash_key(key), slug, req["label"], _now()))
+        conn.execute(
+            "UPDATE connect_requests SET status = 'approved', slug = ?, key = ?"
+            " WHERE device_code = ?", (slug, key, req["device_code"]))
+    return True
+
+
+def poll_connect(path: pathlib.Path, device_code: str) -> dict:
+    """What a laptop learns when it asks. The key is handed over exactly once."""
+    import time as _t
+
+    with connect(path) as conn:
+        row = conn.execute("SELECT * FROM connect_requests WHERE device_code = ?",
+                           (device_code or "",)).fetchone()
+        if not row:
+            return {"status": "unknown"}
+        if row["status"] == "pending":
+            return {"status": "expired" if row["expires_at"] < _t.time() else "pending"}
+        if row["status"] == "approved":
+            # Collected once, then forgotten here: from now on only its hash
+            # exists on this side.
+            conn.execute("UPDATE connect_requests SET status = 'collected', key = NULL"
+                         " WHERE device_code = ?", (device_code,))
+            student = conn.execute("SELECT display FROM students WHERE slug = ?",
+                                   (row["slug"],)).fetchone()
+            return {"status": "approved", "key": row["key"], "slug": row["slug"],
+                    "name": student["display"] if student else row["slug"]}
+        return {"status": row["status"]}
+
+
+def device_for_key(path: pathlib.Path, key: str) -> dict | None:
+    if not key:
+        return None
+    with connect(path) as conn:
+        row = conn.execute("SELECT * FROM devices WHERE key_hash = ? AND revoked = 0",
+                           (_hash_key(key),)).fetchone()
+        if row:
+            conn.execute("UPDATE devices SET last_seen = ? WHERE id = ?",
+                         (_now(), row["id"]))
+    return dict(row) if row else None
+
+
+def devices_for(path: pathlib.Path, slug: str) -> list[dict]:
+    with connect(path) as conn:
+        rows = conn.execute("SELECT * FROM devices WHERE slug = ? AND revoked = 0"
+                            " ORDER BY created_at DESC", (slug,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def revoke_device(path: pathlib.Path, device_id: int, slug: str) -> None:
+    with connect(path) as conn:
+        conn.execute("UPDATE devices SET revoked = 1 WHERE id = ? AND slug = ?",
+                     (device_id, slug))
+
+
+# ------------------------------------------------------------ hand-ins
+
+def add_handin(path: pathlib.Path, *, slug: str, name: str, stored: str,
+               size: int, sha256: str, device_id: int | None) -> dict:
+    with connect(path) as conn:
+        cur = conn.execute(
+            "INSERT INTO handins (slug, name, stored, size, sha256, device_id,"
+            " created_at) VALUES (?,?,?,?,?,?,?)",
+            (slug, name, stored, size, sha256, device_id, _now()))
+        row = conn.execute("SELECT * FROM handins WHERE id = ?",
+                           (cur.lastrowid,)).fetchone()
+    return dict(row)
+
+
+def handins_for(path: pathlib.Path, slug: str) -> list[dict]:
+    with connect(path) as conn:
+        rows = conn.execute("SELECT * FROM handins WHERE slug = ?"
+                            " ORDER BY created_at DESC, id DESC", (slug,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def handin(path: pathlib.Path, handin_id: int) -> dict | None:
+    with connect(path) as conn:
+        row = conn.execute("SELECT * FROM handins WHERE id = ?",
+                           (handin_id,)).fetchone()
+    return dict(row) if row else None
 
 
 # ------------------------------------------------------------------ mentors

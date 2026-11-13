@@ -57,3 +57,6 @@ client_secret_*.json
 # seeded from go2/course_pack. Not source, and not the same on two
 # deployments.
 courses/
+
+# Homework handed in from laptops: student data, not source.
+handins/

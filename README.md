@@ -177,6 +177,11 @@ Programming a Robot Dog      course up to date · checked 2 min ago  [ check now
 Programming a Robot Dog      New from your class: homework_1.md     [ get it ]
 ```
 
+**Signing in and handing in** live in the same strip. A laptop works fully
+without signing in; **sign in** opens the class site in the browser for one
+click of confirmation, and from then on the strip shows the student's name and
+a **hand in** picker of their own files. See `classroom/README.md`.
+
 The strip is built for more than this. The service sends a title and a list
 of items — text, a tone, perhaps a button — and the page draws whatever it is
 given (`go2/web.py`, class `Classroom`). An announcement or an "I'm stuck"

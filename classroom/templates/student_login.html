@@ -12,6 +12,7 @@
   <p>Your mentor gave you something like <span class="code-chip">K7P2-M4QX</span>.</p>
   <form class="row" method="post" action="/student/code">
     <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="next" value="{{ next or '/student' }}">
     <div>
       <label for="code">Join code</label>
       <input id="code" name="code" type="text" autocomplete="one-time-code"
@@ -26,7 +27,7 @@
   <h3>With Google</h3>
   {% if settings.google_configured %}
     <p>Use the address your mentor has on the class list.</p>
-    <p><a class="btn google" href="/login/google?next=/student">Continue with Google</a></p>
+    <p><a class="btn google" href="/login/google?next={{ (next or '/student') | urlencode }}">Continue with Google</a></p>
   {% else %}
     <p class="note">
       Google sign-in is not set up on this server yet. Use your join code.
