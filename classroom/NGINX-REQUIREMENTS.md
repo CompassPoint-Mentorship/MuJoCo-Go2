@@ -24,9 +24,17 @@ Use the tailnet address if the gateway is on the tailnet — it needs no
 firewall holes. Otherwise the LAN address, and the upstream box will be
 firewalled to accept `8500` only from the gateway.
 
-**The app currently binds `127.0.0.1:8500`.** Tell me which source address
-the gateway will connect from and I will rebind it (`--host`) and open the
-firewall to exactly that. Nothing else should be able to reach port 8500.
+**The app is up and answering on both addresses now**, so the gateway can be
+configured and tested immediately:
+
+```
+$ curl -fsS http://192.168.1.215:8500/healthz     # -> ok
+$ curl -fsS http://100.84.247.85:8500/healthz     # -> ok
+```
+
+It listens on `0.0.0.0:8500` while the gateway is being set up. Once you know
+the address nginx will connect from, say so and port 8500 will be firewalled
+to that host alone -- nothing else has any business reaching it.
 
 ---
 

@@ -20,7 +20,10 @@ WorkingDirectory=/srv/MuJoCo-Go2
 # Secrets live here, not in this file: GO2_TEACHERS, GOOGLE_CLIENT_ID,
 # GOOGLE_CLIENT_SECRET, GO2_SESSION_SECRET, GO2_BASE_URL.
 EnvironmentFile=/srv/MuJoCo-Go2/.env
-ExecStart=/srv/MuJoCo-Go2/.venv/bin/python -m classroom --host 127.0.0.1 --port 8500
+# 0.0.0.0 because the reverse proxy is on a different machine. Nothing else
+# should be able to reach 8500: firewall it to the gateway's address.
+#   sudo ufw allow from <gateway-ip> to any port 8500 proto tcp
+ExecStart=/srv/MuJoCo-Go2/.venv/bin/python -m classroom --host 0.0.0.0 --port 8500
 Restart=on-failure
 RestartSec=5
 # The one thing it writes outside the repo is nothing; keep it that way.
