@@ -31,10 +31,33 @@ VENV="$PREFIX/venv"
 PYVER="${GO2_PYTHON:-3.12}"
 # Escape hatch for a Mac we have not seen: force one MuJoCo version.
 GO2_MUJOCO="${GO2_MUJOCO:-}"
+# Times are shown in the class's own timezone, not UTC. GitHub answers in UTC,
+# and "05:43Z" for a push somebody made at 9:43 last night is a puzzle, not an
+# answer -- which is the opposite of what this line is for.
+RELEASE_TZ="${GO2_TZ:-America/Los_Angeles}"
 
 say()  { printf '\033[1m==>\033[0m %s\n' "$*"; }
-warn() { printf '\033[33m!!\033[0m  %s\n' "$*" >&2; }
-die()  { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
+
+# An ISO-8601 UTC timestamp, in local terms. GNU date and BSD date disagree
+# about every flag involved -- and `date -d` means something else entirely on
+# BSD, so the right one has to go first rather than be discovered by trying.
+# Either way, falling back to the timestamp we were handed beats dropping the
+# release line over a date format.
+local_time() {   # local_time 2026-11-13T05:43:42Z
+  local iso="$1" epoch="" out=""
+  if [ "${OS:-}" = "Darwin" ]; then
+    epoch="$(TZ=UTC date -j -f '%Y-%m-%dT%H:%M:%SZ' "$iso" +%s 2>/dev/null || true)"
+    if [ -n "$epoch" ]; then
+      out="$(TZ="$RELEASE_TZ" date -r "$epoch" '+%Y-%m-%d %H:%M %Z' 2>/dev/null || true)"
+    fi
+  else
+    epoch="$(date -u -d "$iso" +%s 2>/dev/null || true)"
+    if [ -n "$epoch" ]; then
+      out="$(TZ="$RELEASE_TZ" date -d "@$epoch" '+%Y-%m-%d %H:%M %Z' 2>/dev/null || true)"
+    fi
+  fi
+  printf '%s' "${out:-$iso}"
+}
 
 # Ask the person a question and echo their answer.
 #
@@ -119,7 +142,9 @@ else
                   | sed 's/.*"\([^"]*\)"$/\1/' || true)"
   if [ -n "$RELEASE_SHA" ]; then
     TARBALL="https://github.com/${REPO}/archive/${RELEASE_SHA}.tar.gz"
-    say "Release: ${REPO} ${BRANCH} @ ${RELEASE_SHA:0:7}${RELEASE_DATE:+   (${RELEASE_DATE})}"
+    RELEASE_WHEN=""
+    [ -n "$RELEASE_DATE" ] && RELEASE_WHEN="$(local_time "$RELEASE_DATE")"
+    say "Release: ${REPO} ${BRANCH} @ ${RELEASE_SHA:0:7}${RELEASE_WHEN:+   (${RELEASE_WHEN})}"
   else
     # Offline, rate-limited, or GitHub is having a day. The install can still
     # go ahead from the branch tarball; it just cannot promise it is current.

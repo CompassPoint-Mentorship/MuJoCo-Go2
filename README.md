@@ -74,8 +74,12 @@ before it downloads or changes anything:
 
 ```
 ==> Go2 simulator installer  (Darwin arm64, into /Users/alice/.go2)
-==> Release: CompassPoint-Mentorship/MuJoCo-Go2 main @ d58c968   (2026-11-13T05:07:02Z)
+==> Release: CompassPoint-Mentorship/MuJoCo-Go2 main @ d58c968   (2026-11-12 21:07 PST)
 ```
+
+The time is the class's own — California, or whatever `GO2_TZ` names. GitHub
+answers in UTC, and "05:07Z" for a push somebody made at 9 last night is a
+puzzle rather than an answer, which is the opposite of what this line is for.
 
 That line is also a pin. Asking GitHub which commit `main` is at, then
 downloading *that commit's* tarball, is what makes the printed version the
