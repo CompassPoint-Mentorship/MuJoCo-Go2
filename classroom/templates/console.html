@@ -2,13 +2,13 @@
 {% block title %}Console — Robo Dog{% endblock %}
 {% block body %}
 
-<h1>Class <span class="poppy">console</span></h1>
+<h1>Class <span class="accent">console</span></h1>
 <p class="lede">{{ rows|length }} student{{ '' if rows|length == 1 else 's' }} on the list.</p>
 
 {% if error %}<div class="error">{{ error }}</div>{% endif %}
 
-<div class="card poppy-card">
-  <h3>🌼 Add a student</h3>
+<div class="card highlight">
+  <h3>Add a student</h3>
   <form class="row" method="post" action="/console/add">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <div>

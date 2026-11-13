@@ -320,3 +320,35 @@ def test_privacy_and_terms_are_public_and_say_who_to_ask(client):
         assert r.status_code == 200, path
         assert "tech@cpmentorship.org" in r.text, f"{path} names nobody to ask"
     assert "/privacy" in client.get("/").text
+
+
+def test_every_page_carries_the_organisation_identity(client):
+    """The logo and icons are the same files cpmentorship.org serves.
+
+    A sister site that merely looks similar is what families notice and
+    distrust, so this asserts the assets are referenced and present rather
+    than that someone remembered to style a header.
+    """
+    import pathlib
+
+    brand = pathlib.Path(__file__).resolve().parents[1] / "classroom" / "static" / "brand"
+    for name in ("logo.webp", "favicon.ico", "icon.png", "apple-icon.png"):
+        assert (brand / name).is_file(), f"missing brand asset {name}"
+
+    for path in ("/", "/student", "/console", "/privacy", "/terms"):
+        page = client.get(path).text
+        assert "/static/brand/logo.webp" in page, path
+        assert "/static/brand/favicon.ico" in page, path
+
+
+def test_the_pages_make_no_third_party_requests(client):
+    """The privacy page says so, so it has to stay true.
+
+    Fonts are self-hosted for this reason; an external stylesheet or script
+    would quietly make that sentence false.
+    """
+    for path in ("/", "/student", "/console", "/privacy", "/terms"):
+        page = client.get(path)
+        for marker in ("fonts.googleapis.com", "fonts.gstatic.com",
+                       "cdn.jsdelivr.net", "googletagmanager", "google-analytics"):
+            assert marker not in page.text, f"{path} reaches out to {marker}"

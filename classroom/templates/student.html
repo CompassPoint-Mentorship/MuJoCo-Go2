@@ -2,11 +2,11 @@
 {% block title %}{{ student.display }} — Robo Dog{% endblock %}
 {% block body %}
 
-<h1>Hello, <span class="poppy">{{ student.display }}</span>.</h1>
+<h1>Hello, <span class="accent">{{ student.display }}</span>.</h1>
 <p class="lede">Everything you need to start is on this page.</p>
 
-<div class="card poppy-card">
-  <h3>🌼 1. Put the dog on your own laptop</h3>
+<div class="card highlight">
+  <h3>1. Put the dog on your own laptop</h3>
   <p>Open <strong>Terminal</strong> (macOS or Ubuntu) and paste this one line:</p>
   <pre class="cmd" id="install"><code>curl -fsSL {{ settings.install_url }} | bash</code>
 <button class="copy" data-for="install">copy</button></pre>

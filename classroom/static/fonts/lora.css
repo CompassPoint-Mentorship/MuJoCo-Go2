@@ -1,0 +1,15 @@
+/* Lora, the typeface cpmentorship.org sets for both headings and body.
+ *
+ * Self-hosted rather than linked from fonts.googleapis.com: the privacy page
+ * says this site makes no third-party requests of its own, and that should
+ * stay true. Latin subset, upright only -- one variable file, ~37 KB, which
+ * covers every weight the pages use.
+ */
+
+@font-face {
+  font-family: 'Lora';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/static/fonts/lora.woff2') format('woff2-variations');
+}
