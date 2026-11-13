@@ -96,13 +96,15 @@ CREATE TABLE IF NOT EXISTS comments (
     author      TEXT NOT NULL,
     body        TEXT NOT NULL,
     created_at  TEXT NOT NULL,
-    seen_at     TEXT
+    seen_at     TEXT,
+    emailed     TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS comments_slug ON comments (slug, created_at);
 
--- Every email draft a mentor opened from the console. The console never
--- sends mail -- the mentor does, from their own Gmail -- so this records
--- intent, not delivery: enough to answer "have I already invited Ada?".
+-- Every email: invitations the platform sent from the organisation's
+-- address (status sent / failed, with the server's own words), and drafts a
+-- mentor opened in their own Gmail (status drafted -- intent, not delivery).
+-- Enough to answer "did Ada's invitation go out?".
 CREATE TABLE IF NOT EXISTS outbox (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     to_addr     TEXT NOT NULL,
@@ -111,7 +113,7 @@ CREATE TABLE IF NOT EXISTS outbox (
     slug        TEXT,
     sent_by     TEXT NOT NULL,
     created_at  TEXT NOT NULL,
-    status      TEXT NOT NULL DEFAULT 'drafted',
+    status      TEXT NOT NULL DEFAULT 'queued',
     error       TEXT NOT NULL DEFAULT ''
 );
 
@@ -166,6 +168,10 @@ def init(path: pathlib.Path) -> None:
         if "kind" not in columns:
             conn.execute("ALTER TABLE students ADD COLUMN kind TEXT NOT NULL"
                          " DEFAULT 'student'")
+        comment_cols = {r["name"] for r in conn.execute("PRAGMA table_info(comments)")}
+        if "emailed" not in comment_cols:
+            conn.execute("ALTER TABLE comments ADD COLUMN emailed TEXT NOT NULL"
+                         " DEFAULT ''")
 
 
 def new_code(length: int = 8) -> str:
@@ -455,6 +461,12 @@ def comments_for_student(path: pathlib.Path, slug: str) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def set_comment_emailed(path: pathlib.Path, comment_id: int, status: str) -> None:
+    with connect(path) as conn:
+        conn.execute("UPDATE comments SET emailed = ? WHERE id = ?",
+                     (status[:300], comment_id))
+
+
 def mark_comments_seen(path: pathlib.Path, slug: str) -> None:
     with connect(path) as conn:
         conn.execute("UPDATE comments SET seen_at = ? WHERE slug = ?"
@@ -466,9 +478,12 @@ def mark_comments_seen(path: pathlib.Path, slug: str) -> None:
 def log_mail(path: pathlib.Path, *, to_addr: str, subject: str, kind: str,
              slug: str | None, sent_by: str) -> int:
     with connect(path) as conn:
+        # Status set explicitly: a database created by an earlier version has a
+        # different column default, and CREATE TABLE IF NOT EXISTS never fixes it.
         cur = conn.execute(
-            "INSERT INTO outbox (to_addr, subject, kind, slug, sent_by, created_at)"
-            " VALUES (?,?,?,?,?,?)", (to_addr, subject, kind, slug, sent_by, _now()))
+            "INSERT INTO outbox (to_addr, subject, kind, slug, sent_by, created_at,"
+            " status) VALUES (?,?,?,?,?,?,'queued')",
+            (to_addr, subject, kind, slug, sent_by, _now()))
         return cur.lastrowid
 
 
@@ -479,8 +494,24 @@ def outbox(path: pathlib.Path, limit: int = 100) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def mark_mail(path: pathlib.Path, mail_id: int, status: str, error: str = "") -> None:
+    with connect(path) as conn:
+        conn.execute("UPDATE outbox SET status = ?, error = ? WHERE id = ?",
+                     (status, error[:500], mail_id))
+
+
+def mail_sent_today(path: pathlib.Path) -> int:
+    import datetime as _d
+
+    since = (_d.datetime.now(_d.timezone.utc)
+             - _d.timedelta(days=1)).isoformat(timespec="seconds")
+    with connect(path) as conn:
+        return conn.execute("SELECT COUNT(*) FROM outbox WHERE created_at > ?"
+                            " AND status = 'sent'", (since,)).fetchone()[0]
+
+
 def drafted_for(path: pathlib.Path, slug: str, kind: str) -> dict | None:
-    """The most recent draft of this kind for this student, if any."""
+    """The most recent email of this kind for this student, if any."""
     with connect(path) as conn:
         row = conn.execute("SELECT * FROM outbox WHERE slug = ? AND kind = ?"
                            " ORDER BY id DESC LIMIT 1", (slug, kind)).fetchone()

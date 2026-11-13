@@ -53,15 +53,25 @@
       <a class="note" href="/console/work/{{ s.slug }}">their work →</a>
     </td>
     <td>
-      {% if row.draft %}
-        <a class="btn small" href="{{ row.draft }}" target="_blank" rel="noopener"
-           data-draft-kind="invite" data-slug="{{ s.slug }}" data-to="{{ s.email }}"
-           data-subject="Your Robo Dog class: how to start">✉ invite</a>
-        <br><a class="note" href="{{ row.mailto }}" data-draft-kind="invite"
-               data-slug="{{ s.slug }}" data-to="{{ s.email }}">other mail app</a>
-        {% if row.invited %}<br><span class="note">draft opened {{ row.invited.created_at[:10] }}</span>{% endif %}
-      {% else %}
+      {% if not s.email %}
         <span class="note">no email</span>
+      {% elif settings.mail_configured %}
+        <form method="post" action="/console/invite/{{ s.slug }}" style="display:inline"
+              onsubmit="return confirm('Send {{ s.display }} their invitation, from {{ settings.mail_from }}?')">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button class="btn small {{ 'ghost' if row.invited and row.invited.status == 'sent' else '' }}" type="submit">
+            ✉ {{ 'resend' if row.invited and row.invited.status == 'sent' else 'invite' }}
+          </button>
+        </form>
+      {% else %}
+        <span class="note">{{ s.email }}<br>email not set up yet</span>
+      {% endif %}
+      {% if row.invited %}
+        <br><span class="note">
+          {% if row.invited.status == 'sent' %}invited {{ row.invited.created_at[:16] | replace('T', ' ') }} UTC
+          {% elif row.invited.status == 'failed' %}<span style="color:var(--bad)">failed: {{ row.invited.error }}</span>
+          {% else %}sending...{% endif %}
+        </span>
       {% endif %}
     </td>
     <td><span class="code-chip">{{ s.join_code }}</span></td>
@@ -101,8 +111,19 @@
 </table>
 
 <h2>Email the class</h2>
+{% if settings.mail_configured %}
+<p class="note">
+  Every email is sent by this site from <code>{{ settings.mail_from }}</code>,
+  signed with your name. Replies go to that mailbox.
+  <a href="/console/outbox">Outbox →</a>
+  <form method="post" action="/console/mail/test" style="display:inline">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button class="btn small ghost" type="submit">send a test to me</button>
+  </form>
+</p>
 <div class="card">
-  <form method="post" action="/console/announce">
+  <form method="post" action="/console/announce"
+        onsubmit="return confirm('Email this to every student with an address, from {{ settings.mail_from }}?')">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <div>
       <label for="ann-subject">Subject</label>
@@ -114,15 +135,22 @@
       <textarea id="ann-message" name="message" rows="5" required
                 style="width:100%; font:inherit; padding:0.5rem; border:1px solid #c3cbd2; border-radius:8px"></textarea>
     </div>
-    <p><button class="btn" type="submit">Write the email</button></p>
+    <p><button class="btn" type="submit">Send to the class</button></p>
   </form>
   <p class="note">
-    This writes the email; it does not send it. The next page opens it in
-    <strong>your own Gmail</strong>, addressed to you with every student who has
-    an email in BCC — so nobody sees anyone else's address — and you press
-    Send. It goes out from your account, and replies come to you.
+    Each student gets their own copy, greeted by name, so no address is ever
+    shown to anyone else — and one address that bounces doesn't stop the rest.
   </p>
 </div>
+{% else %}
+<div class="card">
+  <p class="note" style="margin:0">
+    Email is not set up on this server yet. Once the mailbox is configured
+    (see <code>classroom/README.md</code>, "Email"), invitations,
+    announcements and feedback are all sent from it.
+  </p>
+</div>
+{% endif %}
 
 <h2>Mentors</h2>
 <p class="note">
@@ -143,10 +171,13 @@
       {% endif %}
     </td>
     <td>
-      {% if m.draft %}
-        <a class="btn small" href="{{ m.draft }}" target="_blank" rel="noopener"
-           data-draft-kind="mentor-invite" data-to="{{ m.email }}"
-           data-subject="You are a mentor on the Robo Dog class console">✉ invite</a>
+      {% if not m.fixed and settings.mail_configured %}
+        <form method="post" action="/console/mentors/invite" style="display:inline"
+              onsubmit="return confirm('Send {{ m.email }} their invitation, from {{ settings.mail_from }}?')">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="hidden" name="email" value="{{ m.email }}">
+          <button class="btn small" type="submit">✉ invite</button>
+        </form>
       {% endif %}
       {% if not m.fixed %}
       <form method="post" action="/console/mentors/remove" style="display:inline"
@@ -171,8 +202,8 @@
 </form>
 <p class="note">
   Any Google account works. They sign in at
-  <code>{{ settings.base_url }}/console</code>; <strong>✉ invite</strong> opens
-  that link in an email from your own Gmail. Addresses set in <code>GO2_TEACHERS</code> on the
+  <code>{{ settings.base_url }}/console</code>; <strong>✉ invite</strong> emails
+  them that link. Addresses set in <code>GO2_TEACHERS</code> on the
   server cannot be removed from this page, which is what stops a console from
   locking out its own owners.
 </p>

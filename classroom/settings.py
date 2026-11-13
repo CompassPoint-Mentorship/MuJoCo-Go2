@@ -70,11 +70,26 @@ class Settings:
     course_pack: pathlib.Path = REPO_ROOT / "courses" / "live"
     # Homework handed in from laptops: small files, kept per student.
     handin_dir: pathlib.Path = REPO_ROOT / "handins"
+    # Invitations are the one email the platform sends itself, from the
+    # organisation's address. Announcements and feedback are not: those open
+    # as drafts in the mentor's own Gmail. Plain SMTP, so the mailbox is a
+    # setting -- tech@ today, a dedicated sending address tomorrow.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    mail_from: str = ""
+    mail_daily_limit: int = 300
 
 
     @property
     def google_configured(self) -> bool:
         return bool(self.google_client_id and self.google_client_secret)
+
+    @property
+    def mail_configured(self) -> bool:
+        return bool(self.smtp_host and self.mail_from
+                    and (self.smtp_password or not self.smtp_user))
 
     @property
     def install_url(self) -> str:
@@ -109,4 +124,10 @@ class Settings:
                 "GO2_COURSE_PACK", str(REPO_ROOT / "courses" / "live"))),
             handin_dir=pathlib.Path(os.environ.get(
                 "GO2_HANDIN_DIR", str(REPO_ROOT / "handins"))),
+            smtp_host=os.environ.get("SMTP_HOST", ""),
+            smtp_port=int(os.environ.get("SMTP_PORT", "587") or 587),
+            smtp_user=os.environ.get("SMTP_USER", ""),
+            smtp_password=os.environ.get("SMTP_PASSWORD", "").replace(" ", ""),
+            mail_from=os.environ.get("MAIL_FROM", ""),
+            mail_daily_limit=int(os.environ.get("MAIL_DAILY_LIMIT", "300") or 300),
         )

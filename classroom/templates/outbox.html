@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Outbox — Robo Dog{% endblock %}
+{% block body %}
+<h1><span class="accent">Outbox</span></h1>
+<p class="lede">Every email this site has sent, newest first.</p>
+<p class="note">
+  From <code>{{ settings.mail_from or '(not set up)' }}</code>. A batch is sent
+  in the background — reload to see the rest arrive.
+</p>
+<table>
+  <tr><th>When (UTC)</th><th>To</th><th>Subject</th><th>Kind</th><th>Result</th></tr>
+  {% for r in rows %}
+  <tr>
+    <td class="note">{{ r.created_at[:16] | replace('T', ' ') }}</td>
+    <td>{{ r.to_addr }}</td>
+    <td>{{ r.subject }}</td>
+    <td class="note">{{ r.kind }}<br>{{ r.sent_by }}</td>
+    <td>
+      {% if r.status == 'sent' %}<span class="pill running">sent</span>
+      {% elif r.status == 'failed' %}<span class="pill failed">failed</span><br><span class="note">{{ r.error }}</span>
+      {% else %}<span class="pill provisioning">sending</span>{% endif %}
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="5" class="note">Nothing sent yet.</td></tr>
+  {% endfor %}
+</table>
+<p class="note"><a href="/console">← back to the class</a></p>
+{% endblock %}

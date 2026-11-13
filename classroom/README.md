@@ -215,44 +215,59 @@ a snapshot, never a sync, so there is never a "which version wins" to explain.
 Hand-ins appear on the student's work page in the console, and are stored under
 `handins/<name>/` (`GO2_HANDIN_DIR`), 5 MB per file.
 
-## Email — sent by the mentor, never by the site
+## Email — everything from tech@cpmentorship.org
 
-When mentor A emails anyone, it goes out **from A's own Gmail**, lands in A's
-Sent folder, and replies come back to A, because A presses Send. The console
-writes the draft and opens it; it holds no mail credentials and runs no mail
-server.
+Every email the site sends comes from one address, `MAIL_FROM`
+(tech@cpmentorship.org), signed with the name of the mentor who wrote it.
+Families see one sender they can recognise; replies land in one mailbox the
+organisation controls.
 
-| Button | Opens in your Gmail |
+| In the console | Sends |
 |---|---|
-| **✉ invite** on a student | to the student: their join code, `/student` link and the install line |
-| **✉ invite** on a mentor | to the mentor: the console link |
-| **Email the class** | to you, with every student who has an address in **BCC** |
-| **✉ email this** on feedback | to the student: your comment, quoted |
+| **✉ invite** on a student | their join code, `/student` link and the install line |
+| **✉ invite** on a mentor | the console link — only to addresses on the mentor list |
+| **Send to the class** | one email per student, greeted by name, in the background |
+| **also email it**, when saving feedback | the comment, quoted, to that student |
+| **send a test to me** | a test, to your own address only |
 
-Every draft link carries `authuser=<your console address>`. Without it, Gmail
-opens whichever account is the browser's default — so "sent through A" would
-quietly become "sent through A's personal account" for anyone with two Google
-accounts signed in. An *other mail app* link (`mailto:`) sits beside each one
-for a mentor whose address is not a Gmail mailbox.
+Every send is in the **outbox** (`/console/outbox`) with the mail server's own
+words when it fails. Announcements are checked against `MAIL_DAILY_LIMIT`
+(300) as a whole before any is sent — half an announcement is worse than none.
+Only roster and mentor-list addresses are ever used, each checked to be
+exactly one address, so a stored value cannot add recipients or headers.
 
-Why drafts, not one-click sending: Gmail's send-only API permission would
-work, but the server would then hold a send-as-you credential for every
-mentor, and a compromised class server could email parents as their child's
-mentor. A draft costs one click, stores nothing, and means a mentor reads
-every message before it reaches a student.
+When the mailbox is not set up, the buttons are replaced by a note. There is
+no fallback to anyone's personal mail.
 
-Only addresses already on the roster or the mentor list are ever used, and
-each is checked to be exactly one address, so a stored value cannot add
-recipients. The outbox (`outbox` table) records that a draft was *opened* —
-intent, not delivery; whether Send was pressed is between the mentor and
-Gmail.
+### Setting up the mailbox
+
+The site sends through Google's SMTP server as `SMTP_USER`, with an **app
+password** — a 16-letter password Google issues for one program:
+
+1. Sign in to Google as **tech@cpmentorship.org**.
+2. Make sure **2-Step Verification** is on (Security → 2-Step Verification).
+3. Open <https://myaccount.google.com/apppasswords>, name it `Robo Dog`, and
+   copy the 16 letters.
+4. Put them in `.env` as `SMTP_PASSWORD=` and restart:
+   `cd classroom && docker compose up -d`.
+5. In the console, press **send a test to me**.
+
+If the app-passwords page says the setting is unavailable, a Workspace admin
+has turned app passwords off for the organisation (Admin console → Security);
+it needs turning on for this account.
+
+**Know what an app password can do.** It is not limited to sending — it also
+opens the whole mailbox over IMAP. If tech@ holds mail that matters, a
+compromised server would expose it. A dedicated sending address
+(robodog@ or noreply@cpmentorship.org) holds only what it sent; switching is a
+change to `SMTP_USER`, `SMTP_PASSWORD` and `MAIL_FROM`.
 
 ## Feedback
 
 On a hand-in, **Add feedback** saves a comment. The student sees it on their
 `/student` page, and their laptop's strip shows *💬 New feedback on
 my_square.ipynb* until they read it. Emailing it is the mentor's choice, with
-the **✉ email this** button that appears under each comment.
+**also email it** when saving.
 
 ## Running a class
 

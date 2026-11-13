@@ -1051,97 +1051,196 @@ def test_the_laptop_side_end_to_end(client, tmp_path, monkeypatch):
     assert link.who() is None
 
 
-# ------------------------------------------- email: drafts in the mentor's Gmail
+# ------------------------------------------- email: everything from tech@
 
-def _query(url):
-    from urllib.parse import parse_qs, urlparse
-    return {k: v[0] for k, v in
-            parse_qs(urlparse(url).query, keep_blank_values=True).items()}
+class FakeSMTP:
+    """Stands in for the mail server; records what would have been sent."""
+    sent: list = []
+    fail_login = False
 
+    def __init__(self, host, port, timeout=None, context=None):
+        self.host, self.port = host, port
 
-def test_an_invite_opens_in_the_sending_mentors_own_gmail(client):
-    """Through mentor A means A's mailbox -- not whichever account is default."""
-    import html
-    import re
+    def starttls(self, context=None):
+        pass
 
-    student = db.add(client.settings.db_path, slug="ada", display="Ada",
-                     email="ada@gmail.com", created_by="t")
-    sign_in_as(client, kind="teacher", email=TEACHER, name="Ms Mentor")
-    page = client.get("/console").text
+    def login(self, user, password):
+        import smtplib
+        if FakeSMTP.fail_login:
+            raise smtplib.SMTPAuthenticationError(535, b"5.7.8 Username and Password not accepted")
 
-    link = html.unescape(re.search(r'href="(https://mail\.google\.com/[^"]+)"', page).group(1))
-    q = _query(link)
-    assert q["authuser"] == TEACHER, "the draft would open in someone else's mailbox"
-    assert q["to"] == "ada@gmail.com"
-    assert student.join_code in q["body"]
-    assert "robo-dog.example.org/student" in q["body"]
-    assert "Ms Mentor" in q["body"]
+    def send_message(self, msg):
+        FakeSMTP.sent.append(msg)
 
+    def quit(self):
+        pass
 
-def test_two_mentors_get_drafts_in_two_different_mailboxes(client):
-    import html
-    import re
+    def __enter__(self):
+        return self
 
-    db.add(client.settings.db_path, slug="ada", display="Ada", email="ada@gmail.com",
-           created_by="t")
-    db.add_mentor(client.settings.db_path, "second@gmail.com", added_by=TEACHER)
-    senders = set()
-    for email in (TEACHER, "second@gmail.com"):
-        sign_in_as(client, kind="teacher", email=email, name=email)
-        page = client.get("/console").text
-        link = html.unescape(re.search(r'href="(https://mail\.google\.com/[^"]+)"', page).group(1))
-        senders.add(_query(link)["authuser"])
-    assert senders == {TEACHER, "second@gmail.com"}
+    def __exit__(self, *exc):
+        return False
 
 
-def test_a_student_without_an_email_gets_no_draft(client):
-    db.add(client.settings.db_path, slug="ada", display="Ada", email=None, created_by="t")
-    sign_in_as(client, kind="teacher", email=TEACHER)
-    page = client.get("/console").text
-    assert "no email" in page
-    assert "mail.google.com" not in page
+MAIL_FROM = "Robo Dog \u00b7 CompassPoint Mentorship <tech@cpmentorship.org>"
 
 
-def test_an_announcement_hides_every_students_address_from_the_others(client):
-    import html
-    import re
+@pytest.fixture
+def mailing(settings, monkeypatch):
+    """A client whose server mailbox is set up, with the SMTP server faked."""
+    import dataclasses
 
-    for slug, email in (("ada", "ada@gmail.com"), ("bob", "bob@gmail.com"), ("cy", None)):
-        db.add(client.settings.db_path, slug=slug, display=slug.title(), email=email,
-               created_by="t")
-    sign_in_as(client, kind="teacher", email=TEACHER, name="Ms Mentor")
-    r = client.post("/console/announce", data={
-        "subject": "No class Tuesday", "message": "We are off for Thanksgiving.",
-        "csrf": SESSION_CSRF})
-
-    link = html.unescape(re.search(r'href="(https://mail\.google\.com/[^"]+)"', r.text).group(1))
-    q = _query(link)
-    assert q["authuser"] == TEACHER
-    assert q["to"] == TEACHER, "students must not be in To:"
-    assert set(q["bcc"].split(",")) == {"ada@gmail.com", "bob@gmail.com"}
-    assert "Hi everyone" in q["body"] and "Thanksgiving" in q["body"]
-    assert "Cy" in r.text, "the page must say who it will not reach"
-
-
-def test_a_stored_address_cannot_inject_extra_recipients(client):
-    """Addresses come from the roster, but the roster came from a form."""
     from classroom import mail
 
-    link = mail.gmail_draft(sender=TEACHER, to="ada@gmail.com,evil@x.org",
-                            subject="s", body="b", bcc=["ok@x.org", "bad@x.org\nBcc: z@x"])
-    q = _query(link)
-    assert q["to"] == "", "a comma-joined pair is not one address"
-    assert q["bcc"] == "ok@x.org", "a line break must not smuggle in a header"
+    FakeSMTP.sent = []
+    FakeSMTP.fail_login = False
+    monkeypatch.setattr(mail.smtplib, "SMTP", FakeSMTP)
+    monkeypatch.setattr(mail.smtplib, "SMTP_SSL", FakeSMTP)
+    configured = dataclasses.replace(
+        settings, smtp_host="smtp.gmail.com", smtp_user="tech@cpmentorship.org",
+        smtp_password="app-password", mail_from=MAIL_FROM, mail_daily_limit=10)
+    monkeypatch.setattr(labs.Labs, "_run", lambda self, *a, **k: "")
+    c = TestClient(app_module.create_app(configured), base_url=configured.base_url)
+    c.settings = configured
+    return c
 
 
-def test_the_console_never_sends_mail_itself(client):
-    """No SMTP, no mail settings: the mentor presses Send, in their own Gmail."""
-    import pathlib
+def _wait_for_outbox(client, count, seconds=5):
+    import time
+    for _ in range(int(seconds * 20)):
+        rows = db.outbox(client.settings.db_path)
+        if len(rows) >= count and all(r["status"] in ("sent", "failed") for r in rows):
+            return rows
+        time.sleep(0.05)
+    raise AssertionError(f"outbox never settled: {db.outbox(client.settings.db_path)}")
 
-    src = (pathlib.Path(__file__).resolve().parents[1] / "classroom")
-    for py in src.glob("*.py"):
-        text = py.read_text()
-        assert "import smtplib" not in text and "smtplib." not in text, py.name
+
+def test_an_invitation_is_sent_from_tech_and_carries_what_the_student_needs(mailing):
+    student = db.add(mailing.settings.db_path, slug="ada", display="Ada",
+                     email="ada@gmail.com", created_by="t")
+    sign_in_as(mailing, kind="teacher", email=TEACHER, name="Ms Mentor")
+
+    r = mailing.post("/console/invite/ada", data={"csrf": SESSION_CSRF},
+                     follow_redirects=True)
+
+    assert "Invitation sent to Ada" in r.text
+    (msg,) = FakeSMTP.sent
+    assert msg["From"] == MAIL_FROM
+    assert msg["To"] == "ada@gmail.com"
+    text = msg.get_body(("plain",)).get_content()
+    assert student.join_code in text
+    assert "robo-dog.example.org/student" in text
+    assert "install/mac.sh | bash" in text
+    assert "Ms Mentor" in text, "written by a mentor, signed by them"
+    assert "invited" in mailing.get("/console").text
+
+
+def test_nothing_is_sent_and_nothing_falls_back_when_email_is_not_set_up(client):
+    """No mailbox means a clear note -- never a detour through someone's Gmail."""
+    db.add(client.settings.db_path, slug="ada", display="Ada", email="ada@gmail.com",
+           created_by="t")
+    sign_in_as(client, kind="teacher", email=TEACHER)
+    page = client.get("/console").text
+    assert "not set up" in page
+    assert "mail.google.com" not in page and "action=\"/console/invite/ada\"" not in page
+
+    r = client.post("/console/invite/ada", data={"csrf": SESSION_CSRF}, follow_redirects=True)
+    assert "not set up" in r.text
+
+
+def test_an_announcement_is_one_email_per_student_greeted_by_name(mailing):
+    path = mailing.settings.db_path
+    for slug, name, email in (("ada", "Ada", "ada@gmail.com"),
+                              ("bob", "Bob", "bob@gmail.com"),
+                              ("cy", "Cy", None)):
+        db.add(path, slug=slug, display=name, email=email, created_by="t")
+    sign_in_as(mailing, kind="teacher", email=TEACHER, name="Ms Mentor")
+
+    r = mailing.post("/console/announce", data={
+        "subject": "No class Tuesday", "message": "We are off for Thanksgiving.",
+        "csrf": SESSION_CSRF}, follow_redirects=True)
+    rows = _wait_for_outbox(mailing, 2)
+
+    assert "Cy" in r.text, "the mentor must be told who was not reached"
+    assert sorted(m["To"] for m in FakeSMTP.sent) == ["ada@gmail.com", "bob@gmail.com"]
+    for msg in FakeSMTP.sent:
+        assert msg["From"] == MAIL_FROM
+        assert msg["Bcc"] is None and msg["Cc"] is None, "one recipient per message"
+        name = "Ada" if msg["To"].startswith("ada") else "Bob"
+        assert f"Hi {name}," in msg.get_body(("plain",)).get_content()
+    assert {r["status"] for r in rows} == {"sent"}
+
+
+def test_an_announcement_that_would_cross_the_daily_limit_sends_nothing(mailing):
+    """Half an announcement is worse than none."""
+    for i in range(11):                                   # limit is 10
+        db.add(mailing.settings.db_path, slug=f"s{i:02d}", display=f"S{i}",
+               email=f"s{i}@gmail.com", created_by="t")
+    sign_in_as(mailing, kind="teacher", email=TEACHER)
+    r = mailing.post("/console/announce", data={"subject": "x", "message": "y",
+                                                 "csrf": SESSION_CSRF},
+                     follow_redirects=True)
+    assert "Not sent" in r.text
+    assert "that is 11 emails" in r.text and "of today&#39;s 10" in r.text
+    assert FakeSMTP.sent == []
+    assert db.outbox(mailing.settings.db_path) == []
+
+
+def test_a_refused_password_is_reported_in_plain_words(mailing):
+    db.add(mailing.settings.db_path, slug="ada", display="Ada", email="ada@gmail.com",
+           created_by="t")
+    FakeSMTP.fail_login = True
+    sign_in_as(mailing, kind="teacher", email=TEACHER)
+    r = mailing.post("/console/invite/ada", data={"csrf": SESSION_CSRF},
+                     follow_redirects=True)
+    assert "refused the password" in r.text
+    (row,) = db.outbox(mailing.settings.db_path)
+    assert row["status"] == "failed" and "password" in row["error"]
+
+
+def test_feedback_is_emailed_only_when_asked(mailing):
+    path = mailing.settings.db_path
+    db.add(path, slug="ada", display="Ada", email="ada@gmail.com", created_by="t")
+    key, _ = _connect(mailing)
+    hid = _laptop(mailing).post("/api/handin", headers={"Authorization": f"Bearer {key}"},
+                                files={"file": ("my_square.ipynb", b'{"cells": []}')}).json()["id"]
+    sign_in_as(mailing, kind="teacher", email=TEACHER, name="Ms Mentor")
+
+    mailing.post(f"/console/handin/{hid}/comment",
+                 data={"body": "Saved, not mailed.", "csrf": SESSION_CSRF})
+    assert FakeSMTP.sent == []
+
+    mailing.post(f"/console/handin/{hid}/comment",
+                 data={"body": "Make the turn a function.", "email": "1",
+                       "csrf": SESSION_CSRF})
+    (msg,) = FakeSMTP.sent
+    assert msg["From"] == MAIL_FROM and msg["To"] == "ada@gmail.com"
+    assert msg["Subject"] == "Feedback on my_square.ipynb"
+    assert "Make the turn a function." in msg.get_body(("plain",)).get_content()
+    assert "emailed to Ada" in mailing.get(f"/console/handin/{hid}").text
+
+
+def test_the_organisations_mailbox_cannot_be_pointed_at_a_stranger(mailing):
+    """Mentor invites go only to the mentor list; tests only to yourself."""
+    sign_in_as(mailing, kind="teacher", email=TEACHER, name="Ms Mentor")
+    mailing.post("/console/mentors/invite", data={"email": "stranger@example.com",
+                                                   "csrf": SESSION_CSRF})
+    assert FakeSMTP.sent == []
+
+    db.add_mentor(mailing.settings.db_path, "co@gmail.com", added_by=TEACHER)
+    mailing.post("/console/mentors/invite", data={"email": "co@gmail.com",
+                                                   "csrf": SESSION_CSRF})
+    mailing.post("/console/mail/test", data={"csrf": SESSION_CSRF})
+    assert [m["To"] for m in FakeSMTP.sent] == ["co@gmail.com", TEACHER]
+
+
+def test_a_stored_address_cannot_add_recipients_or_headers(mailing):
+    from classroom import mail
+
+    for hostile in ("ada@gmail.com,evil@x.org", "ada@gmail.com\r\nBcc: evil@x.org",
+                    "ada@gmail.com;evil@x.org", "not-an-address"):
+        with pytest.raises(mail.MailError):
+            mail.build(mailing.settings, hostile, "s", "b")
 
 
 def test_feedback_reaches_the_student_page_and_the_laptop(client):
@@ -1158,7 +1257,6 @@ def test_feedback_reaches_the_student_page_and_the_laptop(client):
                 data={"body": "Nice square! Make the turn a function.", "csrf": SESSION_CSRF})
     page = client.get(f"/console/handin/{hid}").text
     assert "Make the turn a function" in page
-    assert "mail.google.com" in page and "email this to Ada" in page
 
     news = laptop.get("/api/comments", headers=auth_header).json()
     assert news["unseen"] == 1 and news["latest"]["handin"] == "my_square.ipynb"

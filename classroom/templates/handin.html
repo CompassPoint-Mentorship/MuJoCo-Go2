@@ -25,16 +25,8 @@
     {{ c.author }} · {{ c.created_at }}
     {% if c.seen_at %} · seen by the student{% endif %}
   </p>
-  {% if c.draft %}
-    <a class="btn small" href="{{ c.draft }}" target="_blank" rel="noopener"
-       data-draft-kind="feedback" data-slug="{{ h.slug }}"
-       data-to="{{ student.email }}" data-subject="Feedback on {{ h.name }}">✉ email this to {{ student.display }}</a>
-    <a class="note" href="{{ c.mailto }}" style="margin-left:0.6rem"
-       data-draft-kind="feedback" data-slug="{{ h.slug }}">other mail app</a>
-  {% elif student and not student.email %}
-    <span class="note">No email on file — they see it on their student page
-      and their laptop's strip.</span>
-  {% endif %}
+  {% if c.emailed == 'sent' %}<span class="note">✉ emailed to {{ student.display }}</span>
+  {% elif c.emailed %}<span class="note" style="color:var(--bad)">✉ {{ c.emailed }}</span>{% endif %}
 </div>
 {% else %}
 <p class="note">No feedback yet.</p>
@@ -46,11 +38,18 @@
   <textarea id="comment" name="body" rows="4" required
             style="width:100%; font:inherit; padding:0.5rem; border:1px solid #c3cbd2; border-radius:8px"
             placeholder="Nice square! Try making the turn a function so you don't repeat it four times."></textarea>
+  {% if student and student.email and settings.mail_configured %}
+  <label style="margin-top:0.5rem">
+    <input type="checkbox" name="email" value="1" checked>
+    also email it to {{ student.display }} ({{ student.email }})
+  </label>
+  {% endif %}
   <p><button class="btn" type="submit">Save feedback</button></p>
 </form>
 <p class="note">
   Saved feedback shows on {{ student.display if student else 'the student' }}'s
-  student page and on their laptop. Emailing it is your choice, from your own
-  Gmail, with the button that appears above.
+  student page and on their laptop.
+  {% if settings.mail_configured %}An email goes from
+  <code>{{ settings.mail_from }}</code>, signed with your name.{% endif %}
 </p>
 {% endblock %}

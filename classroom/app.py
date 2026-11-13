@@ -141,6 +141,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     def page(request: Request, name: str, **ctx) -> HTMLResponse:
         ctx.setdefault("who", auth.current(request))
+        ctx.setdefault("flash", request.session.pop("flash", None))
         ctx.setdefault("csrf", _csrf(request))
         return templates.TemplateResponse(request, name, ctx)
 
@@ -195,11 +196,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 continue
             row = {"email": m["email"], "fixed": False,
                    "added_by": m["added_by"], "created_at": m["created_at"]}
-            if who and who.email:
-                subject, body = mail.mentor_invite(settings, m["email"], who.name)
-                row["draft"] = mail.gmail_draft(sender=who.email, to=m["email"],
-                                                subject=subject, body=body)
-                row["mailto"] = mail.mailto(to=m["email"], subject=subject, body=body)
             rows.append(row)
         return rows
 
@@ -217,11 +213,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "links": labs.links(student.slug) if lab and lab.running else [],
                 "invited": db.drafted_for(settings.db_path, student.slug, "invite"),
             }
-            if student.email and who and who.email:
-                subject, body = mail.student_invite(settings, student, who.name)
-                row["draft"] = mail.gmail_draft(sender=who.email, to=student.email,
-                                                subject=subject, body=body)
-                row["mailto"] = mail.mailto(to=student.email, subject=subject, body=body)
             rows.append(row)
         return rows
 
@@ -436,15 +427,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                             headers={"Content-Disposition":
                                      f'attachment; filename="{h["name"]}"'})
         student = db.get(settings.db_path, h["slug"])
-        who = teacher_only(request)
         comments = db.comments_for_handin(settings.db_path, handin_id)
-        for c in comments:
-            if student and student.email and who and who.email:
-                subject, body = mail.feedback(settings, student, h["name"], c["body"],
-                                              who.name)
-                c["draft"] = mail.gmail_draft(sender=who.email, to=student.email,
-                                              subject=subject, body=body)
-                c["mailto"] = mail.mailto(to=student.email, subject=subject, body=body)
         return page(request, "handin.html", h=h, student=student, body=_preview(path),
                     comments=comments)
 
@@ -726,66 +709,147 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         headers={"Content-Disposition":
                                  f'attachment; filename="{path.name}"'})
 
-    # ------------------------------------------------- email drafts
+    # ------------------------------------------------- invitations, sent here
 
-    @app.post("/console/drafted")
-    def console_drafted(request: Request, kind: str = Form(""), slug: str = Form(""),
-                        to_addr: str = Form(""), subject: str = Form(""),
-                        csrf: str = Form("")):
-        """A mentor opened a draft. Recorded, so "did I invite Ada?" has an answer.
+    def _flash(request: Request, ok: bool, text: str) -> None:
+        request.session["flash"] = {"ok": ok, "text": text}
 
-        It records intent, not delivery: the console cannot know whether the
-        mentor pressed Send in their own Gmail, and does not pretend to.
-        """
-        who = teacher_only(request)
-        if who and _check_csrf(request, csrf) and kind in (
-                "invite", "mentor-invite", "announcement", "feedback"):
-            db.log_mail(settings.db_path, to_addr=to_addr[:300], subject=subject[:200],
-                        kind=kind, slug=slug or None, sent_by=who.email or who.name)
-        return JSONResponse({"ok": True})
-
-    @app.post("/console/announce", response_class=HTMLResponse)
-    def console_announce(request: Request, subject: str = Form(""),
-                         message: str = Form(""), csrf: str = Form("")):
-        """Write one announcement for the class, BCC'd, from the mentor's Gmail."""
+    @app.post("/console/invite/{slug}")
+    def console_invite(request: Request, slug: str, csrf: str = Form("")):
+        """Send a student their invitation from the organisation's address."""
         who = teacher_only(request)
         if not who or not _check_csrf(request, csrf):
             return RedirectResponse("/console", status_code=303)
-        students = db.all_students(settings.db_path)
-        reach = [s.email for s in students if s.email]
-        missed = [s.display for s in students if not s.email]
-        error = None
+        student = db.get(settings.db_path, slug)
+        if not student or not student.email:
+            _flash(request, False, "That student has no email address on file.")
+            return RedirectResponse("/console", status_code=303)
+        subject, body = mail.student_invite(settings, student, who.name)
+        try:
+            mail.send(settings, to_addr=student.email, subject=subject, body=body,
+                      kind="invite", sent_by=who.email or who.name, slug=slug)
+            _flash(request, True, f"Invitation sent to {student.display} ({student.email}).")
+        except mail.MailError as exc:
+            _flash(request, False, f"Not sent to {student.display}: {exc}")
+        return RedirectResponse("/console", status_code=303)
+
+    @app.post("/console/mentors/invite")
+    def console_invite_mentor(request: Request, email: str = Form(""),
+                              csrf: str = Form("")):
+        who = teacher_only(request)
+        if not who or not _check_csrf(request, csrf):
+            return RedirectResponse("/console", status_code=303)
+        # Only someone already on a mentor list: this is not a way to mail
+        # an arbitrary address from the organisation's account.
+        if not auth.is_mentor(settings, email):
+            _flash(request, False, f"{email} is not on the mentor list.")
+            return RedirectResponse("/console", status_code=303)
+        subject, body = mail.mentor_invite(settings, email, who.name)
+        try:
+            mail.send(settings, to_addr=email, subject=subject, body=body,
+                      kind="mentor-invite", sent_by=who.email or who.name)
+            _flash(request, True, f"Invitation sent to {email}.")
+        except mail.MailError as exc:
+            _flash(request, False, f"Not sent to {email}: {exc}")
+        return RedirectResponse("/console", status_code=303)
+
+    @app.post("/console/mail/test")
+    def console_mail_test(request: Request, csrf: str = Form("")):
+        """Prove the mailbox works by sending to yourself -- and only yourself."""
+        who = teacher_only(request)
+        if not who or not _check_csrf(request, csrf) or not who.email:
+            return RedirectResponse("/console", status_code=303)
+        body = (f"Hello {who.name},\n\nThis is a test from the Robo Dog console. "
+                f"Invitations will arrive from {settings.mail_from}, just like "
+                "this one.\n")
+        try:
+            mail.send(settings, to_addr=who.email, subject="Robo Dog console: test email",
+                      body=body, kind="test", sent_by=who.email)
+            _flash(request, True, f"Test email sent to {who.email}. Check your inbox "
+                                  "(and spam, the first time).")
+        except mail.MailError as exc:
+            _flash(request, False, f"Test email not sent: {exc}")
+        return RedirectResponse("/console", status_code=303)
+
+    # ------------------------------------------------- the class, by email
+
+    @app.post("/console/announce")
+    def console_announce(request: Request, subject: str = Form(""),
+                         message: str = Form(""), csrf: str = Form("")):
+        """One email per student, from the organisation's address, in the background.
+
+        Checked against the daily limit as a whole before anything is sent,
+        then handed to a worker: thirty messages is half a minute, and the
+        mentor should not be watching a spinner. The outbox shows each one.
+        """
+        who = teacher_only(request)
+        if not who or not _check_csrf(request, csrf):
+            return RedirectResponse("/console", status_code=303)
         if not subject.strip() or not message.strip():
-            error = "An announcement needs a subject and a message."
-        elif not reach:
-            error = "Nobody on the roster has an email address yet."
-        draft = mailto_link = None
-        if not error:
-            subj, body = mail.announcement(settings, subject, message, who.name)
-            # To the mentor, BCC the class: nobody sees anyone else's address,
-            # and the mentor's own copy is the record that it went.
-            draft = mail.gmail_draft(sender=who.email, to=who.email, subject=subj,
-                                     body=body, bcc=reach)
-            mailto_link = mail.mailto(to=who.email, subject=subj, body=body, bcc=reach)
-        return page(request, "announce.html", error=error, draft=draft,
-                    mailto=mailto_link, reach=len(reach), missed=missed,
-                    subject=subject, message=message)
+            _flash(request, False, "An announcement needs a subject and a message.")
+            return RedirectResponse("/console", status_code=303)
+        students = db.all_students(settings.db_path)
+        reach = [s for s in students if s.email]
+        missed = [s.display for s in students if not s.email]
+        if not reach:
+            _flash(request, False, "Nobody on the roster has an email address yet.")
+            return RedirectResponse("/console", status_code=303)
+        try:
+            mail.check_room(settings, len(reach))
+        except mail.MailError as exc:
+            _flash(request, False, f"Not sent: {exc}")
+            return RedirectResponse("/console", status_code=303)
+        batch = []
+        for student in reach:
+            subj, body = mail.announcement(settings, student, subject, message, who.name)
+            batch.append({"to_addr": student.email, "subject": subj, "body": body,
+                          "kind": "announcement", "slug": student.slug})
+        app.state.pool.submit(mail.send_many, settings, batch,
+                              sent_by=who.email or who.name)
+        note = f"Sending \u201c{subject.strip()}\u201d to {len(reach)} student" \
+               f"{'' if len(reach) == 1 else 's'} from {settings.mail_from}."
+        if missed:
+            note += f" Not reached \u2014 no email on file: {', '.join(missed)}."
+        _flash(request, True, note)
+        return RedirectResponse("/console/outbox", status_code=303)
+
+    @app.get("/console/outbox", response_class=HTMLResponse)
+    def console_outbox(request: Request):
+        if not teacher_only(request):
+            return RedirectResponse("/console", status_code=303)
+        return page(request, "outbox.html", rows=db.outbox(settings.db_path, 200))
 
     # ------------------------------------------------- comments
 
     @app.post("/console/handin/{handin_id}/comment")
     def console_comment(request: Request, handin_id: int, body: str = Form(""),
-                        csrf: str = Form("")):
+                        email: str = Form(""), csrf: str = Form("")):
+        """Save feedback; email it from the organisation's address if asked."""
         who = teacher_only(request)
         if not who or not _check_csrf(request, csrf):
             return RedirectResponse("/console", status_code=303)
         h = db.handin(settings.db_path, handin_id)
-        if h:
+        if not h:
+            return RedirectResponse("/console", status_code=303)
+        try:
+            comment = db.add_comment(settings.db_path, handin_id=handin_id,
+                                     slug=h["slug"], author=who.name or who.email,
+                                     body=body)
+        except ValueError as exc:
+            _flash(request, False, str(exc))
+            return RedirectResponse(f"/console/handin/{handin_id}", status_code=303)
+        student = db.get(settings.db_path, h["slug"])
+        if email and student and student.email:
+            subject, text = mail.feedback(settings, student, h["name"], comment["body"],
+                                          who.name)
             try:
-                db.add_comment(settings.db_path, handin_id=handin_id, slug=h["slug"],
-                               author=who.name or who.email, body=body)
-            except ValueError:
-                pass
+                mail.send(settings, to_addr=student.email, subject=subject, body=text,
+                          kind="feedback", sent_by=who.email or who.name, slug=h["slug"])
+                db.set_comment_emailed(settings.db_path, comment["id"], "sent")
+                _flash(request, True, f"Saved, and emailed to {student.display}.")
+            except mail.MailError as exc:
+                db.set_comment_emailed(settings.db_path, comment["id"], f"failed: {exc}")
+                _flash(request, False, f"Saved, but not emailed: {exc}")
         return RedirectResponse(f"/console/handin/{handin_id}", status_code=303)
 
     @app.get("/api/comments")
