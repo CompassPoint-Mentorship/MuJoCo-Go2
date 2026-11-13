@@ -310,3 +310,13 @@ def test_the_secure_cookie_is_not_evidence_of_forwarding(settings, monkeypatch):
     cookie = plain.get("/student").headers.get("set-cookie", "")
     assert "secure" in cookie.lower(), (
         "the Secure flag follows the configured public name, not the request")
+
+
+def test_privacy_and_terms_are_public_and_say_who_to_ask(client):
+    """Google will not publish an OAuth app without them, and they are linked
+    from every page -- so they must render for someone not signed in."""
+    for path in ("/privacy", "/terms"):
+        r = client.get(path)
+        assert r.status_code == 200, path
+        assert "tech@cpmentorship.org" in r.text, f"{path} names nobody to ask"
+    assert "/privacy" in client.get("/").text

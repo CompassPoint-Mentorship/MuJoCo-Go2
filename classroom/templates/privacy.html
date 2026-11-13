@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}Privacy — Robo Dog{% endblock %}
+{% block body %}
+
+<h1>Privacy</h1>
+<p class="lede">
+  What this site stores, why, and how to have it removed. Written plainly
+  because the people using it are teenagers and their parents.
+</p>
+
+<div class="card poppy-card">
+  <h3>🌼 The short version</h3>
+  <p>
+    We keep the least we can: a name, sometimes an email address, and the
+    coursework a student writes. Nothing is sold, shared or used for
+    advertising, and there are no trackers or analytics on this site.
+  </p>
+</div>
+
+<h2>What is stored</h2>
+
+<table>
+  <tr><th>What</th><th>Why</th><th>Where</th></tr>
+  <tr>
+    <td>A student's name, as their mentor typed it</td>
+    <td>To label their lab and their work folder</td>
+    <td>A database file on CompassPoint's own server</td>
+  </tr>
+  <tr>
+    <td>A join code</td>
+    <td>So a student can sign in without a Google account</td>
+    <td>The same database</td>
+  </tr>
+  <tr>
+    <td>An email address — <em>only if</em> the mentor adds one</td>
+    <td>So that student can sign in with Google instead of a code</td>
+    <td>The same database</td>
+  </tr>
+  <tr>
+    <td>For a mentor signing in with Google: the address and display name on
+        that Google account</td>
+    <td>To check they are on the mentor list, and to show who added a student</td>
+    <td>The same database and a cookie in their browser</td>
+  </tr>
+  <tr>
+    <td>The code a student writes in their notebooks</td>
+    <td>It is their work; it is kept so it is there next session</td>
+    <td>A folder on the same server</td>
+  </tr>
+  <tr>
+    <td>Ordinary web server logs — address, page, time</td>
+    <td>To see that the site is working and to investigate faults</td>
+    <td>The server and its network provider</td>
+  </tr>
+</table>
+
+<h2>Signing in with Google</h2>
+<p>
+  If you choose <strong>Continue with Google</strong>, Google tells this site
+  three things: that the sign-in succeeded, your email address, and the name
+  on the account. That is all we ask for and all we receive — we cannot read
+  your mail, your files, your contacts or anything else, and no password ever
+  reaches this site.
+</p>
+<p class="note">
+  Google's own handling of that sign-in is covered by the
+  <a href="https://policies.google.com/privacy">Google Privacy Policy</a>.
+  You can use a join code instead and skip Google entirely.
+</p>
+
+<h2>Cookies</h2>
+<p>
+  One cookie, called <code>session</code>. It holds who you are signed in as
+  and nothing else, it is signed so it cannot be edited, and it expires after
+  two weeks. There are no advertising or analytics cookies on this site,
+  first-party or otherwise.
+</p>
+
+<h2>The microphone</h2>
+<p>
+  The course has an exercise where the robot dog repeats what you say. That
+  recording is made by your browser, is held in memory on the lab server so it
+  can be played back, and is <strong>discarded when the lab restarts</strong>.
+  It is never written to disk here and never leaves the server. Nothing
+  records anything unless you press record or run a cell that asks for it.
+</p>
+
+<h2>Who can see it</h2>
+<p>
+  Mentors running the class, and the person who administers the server. The
+  simulated dog is software; no robot is connected to this site. Student work
+  lives in that student's own container and is not visible to other students.
+</p>
+<p>
+  We do not sell or share personal information, and we do not use it for
+  advertising or to train anything.
+</p>
+
+<h2>How long, and how to have it deleted</h2>
+<p>
+  Roster entries last as long as the course. Student work is kept so students
+  can come back to it, and is removed on request or when the course ends.
+</p>
+<p>
+  To see what is held about you, or to have it deleted, email
+  <a href="mailto:tech@cpmentorship.org">tech@cpmentorship.org</a>. If you are
+  a parent asking on behalf of your child, say so and we will act on it — we
+  do not require the student to ask.
+</p>
+
+<h2>Children</h2>
+<p>
+  This site is used by students in CompassPoint Mentorship programmes,
+  including under-13s. It collects no more than what is listed above, asks for
+  nothing about a student beyond a name, and a student can take part with no
+  email address at all by using a join code. Parents may ask for their child's
+  information to be removed at any time at the address above.
+</p>
+
+<h2>Changes</h2>
+<p class="note">
+  If this changes, the page changes with it. Last updated 13 November 2026.
+  Questions: <a href="mailto:tech@cpmentorship.org">tech@cpmentorship.org</a>,
+  CompassPoint Mentorship.
+</p>
+
+{% endblock %}

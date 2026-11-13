@@ -123,6 +123,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def home(request: Request):
         return page(request, "home.html")
 
+    @app.get("/privacy", response_class=HTMLResponse)
+    def privacy(request: Request):
+        """Required to publish the Google sign-in app, and right anyway.
+
+        Google will not let an external OAuth app out of testing without a
+        privacy policy and terms. Both pages describe what this server
+        actually does -- which is the only kind of privacy policy worth
+        serving.
+        """
+        return page(request, "privacy.html")
+
+    @app.get("/terms", response_class=HTMLResponse)
+    def terms(request: Request):
+        return page(request, "terms.html")
+
     @app.get("/student", response_class=HTMLResponse)
     def student_page(request: Request):
         who = auth.current(request)
