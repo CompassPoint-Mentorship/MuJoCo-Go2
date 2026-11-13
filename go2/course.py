@@ -54,6 +54,15 @@ What a lock cannot fix: JupyterLab does not reload a notebook that is already
 open, so a student with the tab open sees yesterday's lesson until they close
 it. The notebook says so, and `sync` prints what it changed.
 
+**Laptops are the primary way a class runs**, and the hosted labs are the
+backup. So course material changed on the class server has to reach a laptop
+without anyone re-running the installer: `pull()` mirrors the class's pack
+from the classroom site into `~/.go2/courses/<id>/`, which `resolve()` already
+prefers over the bundled copy, and `go2-lab` does it at every launch before
+`sync()`. Offline, it says so and carries on with what is already there -- a
+laptop that cannot start without the network is a laptop that fails on the
+bus, at a library, or the day the site is down.
+
 `.go2-seed` holds a copy of exactly what was last handed over. Without it
 there is no way to tell our file from theirs, and the only safe rule left is
 "never overwrite" -- which is the first failure above.
@@ -63,10 +72,15 @@ from __future__ import annotations
 
 import argparse
 import filecmp
+import hashlib
+import json
 import os
 import pathlib
 import shutil
 import sys
+import tempfile
+import urllib.error
+import urllib.request
 
 SEED = ".go2-seed"
 HANDOUT_MODE = 0o444      # read-only: the student duplicates it to edit it
@@ -76,6 +90,11 @@ MANIFEST = "course.toml"
 
 PKG = pathlib.Path(__file__).resolve().parent
 BUNDLED = PKG / "course_pack"
+
+# Where the class publishes its material. One address, the same one the
+# install line comes from; GO2_COURSE_URL points a laptop somewhere else.
+DEFAULT_COURSE_URL = "https://robo-dog.cpmentorship.org/course"
+PULL_TIMEOUT = 6.0      # seconds; a launch must not hang on a dead network
 
 
 def installed_courses_dir() -> pathlib.Path:
@@ -275,6 +294,150 @@ def _untouched_copies(handed_over: list[pathlib.Path],
 
 
 # ---------------------------------------------------------------------------
+# pulling the class's pack onto a laptop
+# ---------------------------------------------------------------------------
+
+class PullResult:
+    """What a pull did, in words a student can read in a terminal."""
+
+    def __init__(self) -> None:
+        self.notes: list[str] = []
+        self.pack: pathlib.Path | None = None
+        self.online = False
+        self.engine_commit = ""
+
+    def __bool__(self) -> bool:
+        return self.online
+
+
+def _sha256(path: pathlib.Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 16), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _fetch(url: str, timeout: float) -> bytes:
+    req = urllib.request.Request(url, headers={"User-Agent": "go2-course"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.read()
+
+
+def course_url() -> str:
+    """Where to pull from; "off" turns pulling off for a laptop."""
+    return os.environ.get("GO2_COURSE_URL", DEFAULT_COURSE_URL).rstrip("/")
+
+
+def pull(url: str | None = None, timeout: float = PULL_TIMEOUT,
+         root: pathlib.Path | None = None) -> PullResult:
+    """Mirror the class's published pack into ~/.go2/courses/<id>/.
+
+    Never raises for a network problem: an unreachable site is reported and
+    the laptop carries on with the material it already has. Only files whose
+    hash differs are downloaded, and the mirror is updated by writing beside
+    and renaming over, so an interrupted pull never leaves half a notebook.
+
+    The mirror is ours, not the student's -- their work is in the notebook
+    folder, which sync() still guards -- so it follows the server exactly,
+    including files the class has removed.
+    """
+    result = PullResult()
+    base = (url or course_url()).rstrip("/")
+    if base.lower() in ("", "off", "none"):
+        return result
+    try:
+        manifest = json.loads(_fetch(f"{base}/manifest.json", timeout))
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        reason = getattr(exc, "reason", exc)
+        result.notes.append(
+            f"offline or the class site did not answer ({reason}); "
+            "using the course material already on this computer")
+        return result
+
+    course_id = str(manifest.get("id") or "course")
+    if not course_id.replace("-", "").replace("_", "").isalnum():
+        result.notes.append(f"the class site sent an odd course id {course_id!r}; ignored")
+        return result
+    files = manifest.get("files") or []
+    result.online = True
+    result.engine_commit = str((manifest.get("engine") or {}).get("commit") or "")
+
+    dest = (root or installed_courses_dir()) / course_id
+    units = dest / UNITS
+    units.mkdir(parents=True, exist_ok=True)
+
+    wanted: dict[str, str] = {}
+    for entry in files:
+        name = pathlib.PurePosixPath(str(entry.get("name", ""))).name
+        sha = str(entry.get("sha256", ""))
+        if not name or name.startswith(".") or len(sha) != 64:
+            continue
+        wanted[name] = sha
+
+    fetched = 0
+    for name, sha in sorted(wanted.items()):
+        target = units / name
+        if target.is_file() and _sha256(target) == sha:
+            continue
+        try:
+            # The hash is in the URL so that no cache between here and the
+            # site -- Cloudflare caches .mp3 and .csv on sight -- can answer
+            # with yesterday's bytes. The check below would catch it anyway.
+            data = _fetch(f"{base}/files/{urllib.request.quote(name)}?v={sha[:16]}",
+                          timeout * 3)
+        except (urllib.error.URLError, OSError) as exc:
+            result.notes.append(f"could not download {name} ({exc}); kept the old copy")
+            continue
+        if hashlib.sha256(data).hexdigest() != sha:
+            result.notes.append(f"{name} arrived damaged; kept the old copy")
+            continue
+        with tempfile.NamedTemporaryFile(dir=units, delete=False,
+                                         prefix=".incoming-") as tmp:
+            tmp.write(data)
+        os.replace(tmp.name, target)
+        fetched += 1
+
+    removed = 0
+    for path in units.iterdir():
+        if path.is_file() and not path.name.startswith(".") and path.name not in wanted:
+            path.unlink()
+            removed += 1
+
+    if manifest.get("course_toml"):
+        (dest / MANIFEST).write_text(str(manifest["course_toml"]))
+    os.utime(dest)        # resolve() prefers the most recently written pack
+
+    if fetched or removed:
+        bits = []
+        if fetched:
+            bits.append(f"{fetched} new or changed")
+        if removed:
+            bits.append(f"{removed} withdrawn")
+        result.notes.append(f"course material from the class: {', '.join(bits)}")
+    result.pack = dest
+    return result
+
+
+def engine_is_behind(server_commit: str) -> bool:
+    """True when this laptop's simulator is older than the class's.
+
+    Only an announcement: replacing the engine is a 250 MB download, and the
+    start of a lesson is the worst moment to do one unasked. The student is
+    told, and runs the install line when it suits them.
+    """
+    if not server_commit:
+        return False
+    try:
+        from .build import build_info
+    except Exception:  # noqa: BLE001
+        return False
+    mine = build_info().get("commit", "")
+    return bool(mine) and not server_commit.startswith(mine[:7]) \
+        and not mine.startswith(server_commit[:7])
+
+
+# ---------------------------------------------------------------------------
 # go2-course
 # ---------------------------------------------------------------------------
 
@@ -290,12 +453,25 @@ def main(argv: list[str] | None = None) -> int:
     show = sub.add_parser("show", help="what this pack is, and what is in it")
     show.add_argument("--files", action="store_true", help="list the files too")
 
+    pul = sub.add_parser("pull", help="fetch the class's latest material from the class site")
+    pul.add_argument("--from", dest="url", default=None,
+                     help=f"the class site's course URL (default: $GO2_COURSE_URL or {DEFAULT_COURSE_URL})")
+
     syn = sub.add_parser("sync", help="hand it out, without overwriting student work")
     syn.add_argument("--into", required=True, help="the student's work directory")
     syn.add_argument("-n", "--dry-run", action="store_true",
                      help="say what would happen; write nothing")
 
     args = ap.parse_args(argv)
+
+    if args.cmd == "pull":
+        result = pull(args.url)
+        for note in result.notes or ["already up to date"]:
+            print(f"  {note}")
+        if result.pack:
+            print(f"  pack     {result.pack}")
+        return 0
+
     try:
         pack = resolve(args.course)
     except FileNotFoundError as exc:

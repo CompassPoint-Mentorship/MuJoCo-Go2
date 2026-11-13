@@ -159,7 +159,16 @@ the same docker-group reason.
   it is accepted: a broken `.ipynb` handed to thirty students is thirty blank
   tabs and no explanation.
 - **Hand it out** — *Preview what would change* runs the sync as a dry run
-  across the class and shows it; the other button does it.
+  across the class and shows it; the other button does it **for the hosted
+  labs**.
+
+**Laptops don't need the button.** The pack is published at
+`/course/manifest.json` and `/course/files/<name>`, and every laptop pulls it
+when `go2-lab` starts. So the moment a file is in the pack, the next launch of
+every student's laptop has it. That makes one rule absolute: **nothing goes
+in the pack that students may not read** — it is public, like the installer,
+because a laptop pulling at launch has no session to present. Answer keys
+belong somewhere else.
 
 The class works from `courses/live/`, seeded from the pack inside the `go2`
 package the first time anyone looks, and pointed at by `GO2_COURSE_PACK`. The

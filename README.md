@@ -151,8 +151,30 @@ need a second install step, and a syllabus fix should not need a release.
 
 ### Updating the coursework on a laptop
 
-`go2-lab` applies the same rules as the server's `go2-student.sh sync`, every
-launch. The material is handed over **read-only**, which makes the rule short:
+**Laptops are how a class runs; the hosted labs are the backup.** So every
+`go2-lab` launch first **pulls the class's current material** from the class
+site (`https://robo-dog.cpmentorship.org/course`) into
+`~/.go2/courses/<id>/`, then hands it over:
+
+```
+[go2] course material from the class: 1 new or changed
+```
+
+Only files whose hash changed are downloaded, a download that does not match
+its hash never replaces a good file, and with no network the laptop says so
+and starts with what it already has — a lab that cannot open on a bus is a
+lab that fails at the worst moment. `GO2_COURSE_URL=off` turns pulling off;
+naming a pack with `--course` or `$GO2_COURSE` skips it too, so a mentor
+testing a draft gets the draft.
+
+The simulator itself is *not* updated at launch — that is a 250 MB download,
+and the start of a lesson is the worst time for one. When the class runs a
+newer commit than the laptop, the launch says so and gives the install line.
+Laptops installed before this existed need that one reinstall to start
+pulling.
+
+Then `go2-lab` applies the same rules as the server's `go2-student.sh sync`,
+every launch. The material is handed over **read-only**, which makes the rule short:
 the example is replaced with the current version every time, in place, under
 its own name. Files the student made themselves are never looked at.
 

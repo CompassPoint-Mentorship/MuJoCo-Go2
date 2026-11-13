@@ -60,6 +60,32 @@ def static_version() -> str:
     return digest.hexdigest()[:10]
 
 
+def _repo_commit(repo: pathlib.Path) -> str:
+    """The commit this checkout is on, read without a git binary.
+
+    The classroom container has no git, and does not need one to read two
+    small files. This is what a fresh install would get -- main is pushed
+    as it is committed -- so a laptop on an older commit is told so.
+    """
+    git = repo / ".git"
+    try:
+        head = (git / "HEAD").read_text().strip()
+        if not head.startswith("ref:"):
+            return head if len(head) == 40 else ""
+        ref = head.split(" ", 1)[1].strip()
+        loose = git / ref
+        if loose.is_file():
+            return loose.read_text().strip()
+        packed = git / "packed-refs"
+        if packed.is_file():
+            for line in packed.read_text().splitlines():
+                if line.endswith(" " + ref):
+                    return line.split(" ", 1)[0]
+    except OSError:
+        pass
+    return ""
+
+
 class VersionedStatic(StaticFiles):
     """Static files that say how long they may be kept.
 
@@ -188,6 +214,52 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/", response_class=HTMLResponse)
     def home(request: Request):
         return page(request, "home.html")
+
+    # --------------------------------------- the pack, for laptops to pull
+
+    @app.api_route("/course/manifest.json", methods=["GET", "HEAD"])
+    def course_manifest():
+        """What a laptop needs to mirror the class's material.
+
+        Public on purpose, like the installer: it is the same kind of
+        content the public repository already ships, and a laptop pulling at
+        launch has no session to present. That makes the rule for the pack
+        simple and absolute -- nothing goes in it that students may not
+        read. Answer keys belong somewhere else.
+
+        Hashes rather than dates, so a laptop downloads exactly the files
+        that changed and can tell a damaged download from a real one.
+        """
+        import hashlib
+
+        files = []
+        for unit in pack.files():
+            digest = hashlib.sha256(unit.path.read_bytes()).hexdigest()
+            files.append({"name": unit.name, "sha256": digest, "size": unit.size})
+        toml = pack.path / "course.toml"
+        from go2 import course as engine_course
+        meta = engine_course.manifest(pack.path).get("course", {})
+        body = {
+            "id": meta.get("id", "course"),
+            "title": meta.get("title", ""),
+            "version": hashlib.sha256(
+                "".join(f["sha256"] for f in files).encode()).hexdigest()[:12],
+            "files": files,
+            "course_toml": toml.read_text() if toml.is_file() else "",
+            "engine": {"commit": _repo_commit(settings.repo_root)},
+        }
+        return JSONResponse(body, headers={"Cache-Control": "no-store, max-age=0"})
+
+    @app.api_route("/course/files/{name}", methods=["GET", "HEAD"])
+    def course_file(name: str):
+        try:
+            path = inside(pack.units, name)
+        except CourseError as exc:
+            return PlainTextResponse(f"{exc}\n", status_code=400)
+        if not path.is_file():
+            return PlainTextResponse("no such file in the course\n", status_code=404)
+        return Response(path.read_bytes(), media_type="application/octet-stream",
+                        headers={"Cache-Control": "no-store, max-age=0"})
 
     @app.get("/privacy", response_class=HTMLResponse)
     def privacy(request: Request):

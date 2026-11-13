@@ -592,3 +592,110 @@ def test_a_students_work_cannot_be_read_outside_their_folder(client, tmp_path):
         r = client.get(f"/console/work/ada/download?name={attempt}")
         assert r.status_code in (400, 404), attempt
         assert "not theirs" not in r.text
+
+
+# ------------------------------------------- laptops pull from the class site
+
+def test_the_site_publishes_the_class_pack_with_hashes(client):
+    import hashlib
+
+    from classroom.course import Pack
+
+    pack = Pack(client.settings.course_pack)
+    pack.write("extra.md", b"# extra\n")
+
+    m = client.get("/course/manifest.json")
+    assert m.status_code == 200
+    assert "no-store" in m.headers["cache-control"]
+    body = m.json()
+    entry = next(f for f in body["files"] if f["name"] == "extra.md")
+    assert entry["sha256"] == hashlib.sha256(b"# extra\n").hexdigest()
+
+    f = client.get("/course/files/extra.md")
+    assert f.content == b"# extra\n"
+    assert client.get("/course/files/..%2F..%2Fsettings.py").status_code in (400, 404)
+
+
+def test_a_laptop_mirrors_the_class_pack_and_follows_changes(client, tmp_path, monkeypatch):
+    """The whole point: a mentor's change reaches a laptop with no reinstall."""
+    from classroom.course import Pack
+    from go2 import course as engine
+
+    pack = Pack(client.settings.course_pack)
+    pack.write("lesson.md", b"version one\n")
+
+    def fetch(url, timeout):            # the laptop talks to the test client
+        path = url.split("://", 1)[1].split("/", 1)[1]
+        r = client.get("/" + path)
+        if r.status_code != 200:
+            raise OSError(f"HTTP {r.status_code}")
+        return r.content
+
+    monkeypatch.setattr(engine, "_fetch", fetch)
+    root = tmp_path / "courses"
+
+    first = engine.pull("https://robo-dog.example.org/course", root=root)
+    assert first.online
+    mirror = first.pack / "units"
+    assert (mirror / "lesson.md").read_bytes() == b"version one\n"
+
+    second = engine.pull("https://robo-dog.example.org/course", root=root)
+    assert not any("new or changed" in n for n in second.notes), "re-downloaded unchanged files"
+
+    pack.write("lesson.md", b"version two\n")
+    pack.remove("01_hello_dog.py")
+    third = engine.pull("https://robo-dog.example.org/course", root=root)
+    assert (mirror / "lesson.md").read_bytes() == b"version two\n"
+    assert not (mirror / "01_hello_dog.py").exists(), "a withdrawn file stayed"
+    assert any("1 new or changed" in n and "1 withdrawn" in n for n in third.notes)
+
+
+def test_a_laptop_with_no_network_still_starts(tmp_path, monkeypatch):
+    """Offline is a normal state for a laptop, not an error."""
+    import urllib.error
+
+    from go2 import course as engine
+
+    def down(url, timeout):
+        raise urllib.error.URLError("Name or service not known")
+
+    monkeypatch.setattr(engine, "_fetch", down)
+    result = engine.pull("https://robo-dog.example.org/course", root=tmp_path)
+
+    assert not result.online
+    assert result.pack is None
+    assert any("offline" in n for n in result.notes)
+
+
+def test_a_damaged_download_never_replaces_a_good_file(client, tmp_path, monkeypatch):
+    from classroom.course import Pack
+    from go2 import course as engine
+
+    Pack(client.settings.course_pack).write("lesson.md", b"good\n")
+    real = {}
+
+    def fetch(url, timeout):
+        path = "/" + url.split("://", 1)[1].split("/", 1)[1]
+        body = client.get(path).content
+        return body if "manifest" in url else b"corrupted in transit"
+
+    monkeypatch.setattr(engine, "_fetch", fetch)
+    root = tmp_path / "courses"
+    (root / "go2-intro" / "units").mkdir(parents=True)
+    keep = root / "go2-intro" / "units" / "lesson.md"
+    keep.write_bytes(b"what the laptop already had\n")
+
+    result = engine.pull("https://robo-dog.example.org/course", root=root)
+
+    assert keep.read_bytes() == b"what the laptop already had\n"
+    assert any("damaged" in n for n in result.notes)
+
+
+def test_pulling_can_be_turned_off_for_a_laptop(tmp_path, monkeypatch):
+    from go2 import course as engine
+
+    monkeypatch.setenv("GO2_COURSE_URL", "off")
+    called = []
+    monkeypatch.setattr(engine, "_fetch", lambda *a: called.append(a))
+    result = engine.pull(root=tmp_path)
+    assert not called and not result.online

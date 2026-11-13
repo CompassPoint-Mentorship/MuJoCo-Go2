@@ -314,6 +314,18 @@ def run_lab(args: argparse.Namespace) -> int:
         pass
 
     work = pathlib.Path(args.work).expanduser() if args.work else default_work_dir()
+    # The class's latest material first, then hand it over by the usual
+    # rules. Skipped when someone named a pack on purpose -- a mentor testing
+    # a draft should get the draft, not whatever the class site has.
+    if not args.course_pack and not os.environ.get("GO2_COURSE"):
+        pulled = go2course.pull()
+        for note in pulled.notes:
+            print(f"[go2] {note}")
+        if pulled and go2course.engine_is_behind(pulled.engine_commit):
+            print("[go2] A newer simulator is available for your class.")
+            print("[go2]   When you have a few minutes, run the install line again:")
+            print(f"[go2]   curl -fsSL {go2course.course_url().rsplit('/course', 1)[0]}"
+                  "/CompassPoint-Mentorship/MuJoCo-Go2/main/install/mac.sh | bash")
     pack = go2course.resolve(args.course_pack)
     for note in go2course.sync(work, pack):
         print(f"[go2] {note}")

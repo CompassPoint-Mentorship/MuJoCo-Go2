@@ -167,3 +167,18 @@ def test_handing_out_coursework_needs_no_simulator(tmp_path):
                          text=True, cwd=str(tmp_path))
     assert out.returncode == 0, out.stderr
     assert out.stdout.split() == ["True", "True", "True"], out.stdout
+
+
+def test_a_laptop_is_told_when_the_class_has_a_newer_simulator(monkeypatch):
+    """Announced, never auto-installed: 250 MB at the start of a lesson is
+    the worst possible moment."""
+    from go2 import build, course
+
+    monkeypatch.setattr(build, "build_info",
+                        lambda: {"commit": "aaaaaaa1111111111111111111111111111111aa"})
+    assert course.engine_is_behind("bbbbbbb2222222222222222222222222222222bb")
+    assert not course.engine_is_behind("aaaaaaa1111111111111111111111111111111aa")
+    assert not course.engine_is_behind(""), "no answer from the site is not 'behind'"
+
+    monkeypatch.setattr(build, "build_info", lambda: {"commit": ""})
+    assert not course.engine_is_behind("bbbbbbb"), "a source checkout is never nagged"
