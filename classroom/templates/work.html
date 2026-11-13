@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}{{ student.display if student else 'Work' }} — Robo Dog{% endblock %}
+{% block body %}
+
+{% if not student %}
+  <h1>No such student</h1>
+  <p class="note"><a href="/console">← back to the class</a></p>
+{% else %}
+<h1>{{ student.display }}'s <span class="accent">work</span></h1>
+<p class="lede">
+  Read-only. Nothing here changes what the student has.
+</p>
+
+{% if not work %}
+  <div class="card">
+    <p class="note">
+      No work folder yet — their lab has not been created, or it has never
+      started.
+    </p>
+  </div>
+{% else %}
+<table>
+  <tr><th>File</th><th>Size</th><th></th></tr>
+  {% for f in files %}
+  <tr>
+    <td><a href="/console/work/{{ student.slug }}?open={{ f.name | urlencode }}">{{ f.name }}</a></td>
+    <td class="note">{{ (f.size / 1024) | round(1) }} KB</td>
+    <td><a class="btn small ghost"
+           href="/console/work/{{ student.slug }}/download?name={{ f.name | urlencode }}">Download</a></td>
+  </tr>
+  {% endfor %}
+</table>
+
+{% if shown %}
+<h2>{{ shown }}</h2>
+<p class="note">
+  A notebook is shown as what the student wrote, cell by cell. Outputs are
+  left out: the question here is usually what the code says.
+</p>
+<pre class="cmd"><code>{{ body }}</code></pre>
+{% endif %}
+{% endif %}
+
+<p class="note" style="margin-top:2rem">
+  <a href="/console">← back to the class</a>
+</p>
+{% endif %}
+
+{% endblock %}

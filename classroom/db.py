@@ -34,7 +34,11 @@ CREATE TABLE IF NOT EXISTS students (
     lab_state   TEXT NOT NULL DEFAULT 'none',
     lab_note    TEXT NOT NULL DEFAULT '',
     created_at  TEXT NOT NULL,
-    created_by  TEXT NOT NULL DEFAULT ''
+    created_by  TEXT NOT NULL DEFAULT '',
+    -- 'student', or 'mentor' for a mentor's own lab: the same machinery,
+    -- kept off the class roster so a mentor testing next week's exercise is
+    -- not something students see or sync affects differently.
+    kind        TEXT NOT NULL DEFAULT 'student'
 );
 CREATE INDEX IF NOT EXISTS students_email ON students (email);
 
@@ -61,6 +65,7 @@ class Student:
     lab_note: str
     created_at: str
     created_by: str
+    kind: str = "student"
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "Student":
@@ -86,6 +91,12 @@ def connect(path: pathlib.Path):
 def init(path: pathlib.Path) -> None:
     with connect(path) as conn:
         conn.executescript(SCHEMA)
+        # Work dirs created before `kind` existed: adding it here rather than
+        # in a migration tool, because one column is not worth a dependency.
+        columns = {r["name"] for r in conn.execute("PRAGMA table_info(students)")}
+        if "kind" not in columns:
+            conn.execute("ALTER TABLE students ADD COLUMN kind TEXT NOT NULL"
+                         " DEFAULT 'student'")
 
 
 def new_code(length: int = 8) -> str:
@@ -112,7 +123,7 @@ def valid_slug(slug: str) -> bool:
 
 
 def add(path: pathlib.Path, *, slug: str, display: str,
-        email: str | None, created_by: str) -> Student:
+        email: str | None, created_by: str, kind: str = "student") -> Student:
     if not valid_slug(slug):
         raise ValueError(
             f"{slug!r} is not a usable name: letters, digits and hyphens, "
@@ -121,11 +132,11 @@ def add(path: pathlib.Path, *, slug: str, display: str,
         try:
             conn.execute(
                 "INSERT INTO students (slug, display, email, join_code,"
-                " lab_state, lab_note, created_at, created_by)"
-                " VALUES (?,?,?,?,?,?,?,?)",
+                " lab_state, lab_note, created_at, created_by, kind)"
+                " VALUES (?,?,?,?,?,?,?,?,?)",
                 (slug, display.strip() or slug,
                  (email or "").strip().lower() or None,
-                 new_code(), "none", "", _now(), created_by))
+                 new_code(), "none", "", _now(), created_by, kind))
         except sqlite3.IntegrityError as exc:
             raise ValueError(f"{slug} is already on the list") from exc
     found = get(path, slug)
@@ -164,11 +175,22 @@ def by_code(path: pathlib.Path, code: str) -> Student | None:
     return None
 
 
-def all_students(path: pathlib.Path) -> list[Student]:
+def all_students(path: pathlib.Path, kind: str = "student") -> list[Student]:
+    """The class roster. Mentor labs are `kind='mentor'` and asked for by name."""
     with connect(path) as conn:
         rows = conn.execute(
-            "SELECT * FROM students ORDER BY created_at, slug").fetchall()
+            "SELECT * FROM students WHERE kind = ? ORDER BY created_at, slug",
+            (kind,)).fetchall()
     return [Student.from_row(r) for r in rows]
+
+
+def lab_for_mentor(path: pathlib.Path, email: str) -> Student | None:
+    """A mentor's own lab, if they have made one."""
+    with connect(path) as conn:
+        row = conn.execute(
+            "SELECT * FROM students WHERE kind = 'mentor' AND email = ?",
+            ((email or "").strip().lower(),)).fetchone()
+    return Student.from_row(row) if row else None
 
 
 def set_state(path: pathlib.Path, slug: str, state: str, note: str = "") -> None:

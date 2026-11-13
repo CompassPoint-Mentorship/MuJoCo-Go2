@@ -148,6 +148,37 @@ not what an image was built from three weeks ago.
 `/etc/systemd/system/classroom.service`. It runs as the repository's owner for
 the same docker-group reason.
 
+## Course material, and a mentor's own lab
+
+`/console/course` is where the class's material lives:
+
+- **Your own lab** — one click gives a mentor the same container a student
+  gets. Write next week's exercise there, run it against a real simulated
+  dog, then tick the files and **Publish into the course**.
+- **The pack** — upload, replace or remove files. A notebook is parsed before
+  it is accepted: a broken `.ipynb` handed to thirty students is thirty blank
+  tabs and no explanation.
+- **Hand it out** — *Preview what would change* runs the sync as a dry run
+  across the class and shows it; the other button does it.
+
+The class works from `courses/live/`, seeded from the pack inside the `go2`
+package the first time anyone looks, and pointed at by `GO2_COURSE_PACK`. The
+bundled pack is deliberately left alone: it is what `curl ... | bash`
+downloads onto a student's laptop, so a mentor's experiment must not be able
+to reach it. Running `go2-student.sh` by hand needs the same variable:
+
+```bash
+set -a && . /srv/MuJoCo-Go2/.env && set +a
+./go2-student.sh sync --all
+```
+
+A mentor's lab is `kind='mentor'` in the database, so it stays off the class
+roster — a mentor testing next week's exercise is not a student.
+
+`/console/work/<name>` shows what a student has written, read-only: a
+notebook is rendered as its cells' source, and any file can be downloaded.
+Nothing there can change a student's folder.
+
 ## Running a class
 
 1. Sign in at `/console` with Google. To add a co-mentor, put their Google

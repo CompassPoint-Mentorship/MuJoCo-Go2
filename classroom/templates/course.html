@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}Course material — Robo Dog{% endblock %}
+{% block body %}
+
+<h1>Course <span class="accent">material</span></h1>
+<p class="lede">
+  What every student gets. Change it here, try it in your own lab, then hand
+  it out.
+</p>
+
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+<div class="card highlight">
+  <h3>Your own lab</h3>
+  {% if my_lab %}
+    <p>
+      <code>{{ my_lab.slug }}</code> — a lab like a student's, with the same
+      dog and the same notebooks. Write the next exercise there, run it, then
+      publish the files you want the class to have.
+    </p>
+    {% if my_files %}
+    <form method="post" action="/console/course/publish">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <p class="note">Files in your lab — tick what belongs in the course:</p>
+      {% for name in my_files %}
+        <label style="display:inline-block; margin-right:1rem;">
+          <input type="checkbox" name="names" value="{{ name }}"> {{ name }}
+        </label>
+      {% endfor %}
+      <p><button class="btn" type="submit">Publish into the course</button></p>
+    </form>
+    {% else %}
+      <p class="note">Nothing in it yet, or it is still starting.</p>
+    {% endif %}
+    <p class="note">
+      Publishing copies the file into the pack below. It does not reach
+      students until you hand it out.
+    </p>
+  {% else %}
+    <p>
+      You do not have a lab yet. One click gives you the same environment a
+      student gets, so a new exercise can be written and run against a real
+      simulated dog before anyone else sees it.
+    </p>
+    <form method="post" action="/console/mylab">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button class="btn" type="submit">Create my lab</button>
+    </form>
+  {% endif %}
+</div>
+
+<h2>The pack</h2>
+<p class="note">
+  <code>{{ pack.path }}</code> — the class's own copy. The pack inside the
+  <code>go2</code> package is left alone, because that is what a student's
+  laptop install downloads.
+</p>
+
+<table>
+  <tr><th>File</th><th>Size</th><th></th></tr>
+  {% for f in files %}
+  <tr>
+    <td><strong>{{ f.name }}</strong> <span class="note">{{ f.kind }}</span></td>
+    <td class="note">{{ (f.size / 1024) | round(1) }} KB</td>
+    <td>
+      <form method="post" action="/console/course/remove" style="display:inline"
+            onsubmit="return confirm('Remove {{ f.name }} from the course? Students who already have it keep their copy.')">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="name" value="{{ f.name }}">
+        <button class="btn small ghost" type="submit">Remove</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+
+<form class="row" method="post" action="/console/course/upload"
+      enctype="multipart/form-data" style="margin-top:1rem">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <div>
+    <label for="upload">Add a file (.ipynb, .py, .md, audio, images)</label>
+    <input id="upload" type="file" name="upload" required>
+  </div>
+  <button class="btn" type="submit">Upload</button>
+</form>
+<p class="note">
+  A notebook is checked for being readable JSON with cells before it is
+  accepted — a broken <code>.ipynb</code> handed to thirty students is thirty
+  blank tabs and no explanation.
+</p>
+
+<h2>Hand it out</h2>
+<p class="note">
+  Every student's untouched copy is replaced; anything they have edited is
+  left alone and the new version lands beside it. The example notebooks are
+  read-only in their folders, so in practice they are simply replaced.
+</p>
+<form method="post" action="/console/course/handout" style="display:inline">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="dry" value="1">
+  <button class="btn ghost" type="submit">Preview what would change</button>
+</form>
+<form method="post" action="/console/course/handout" style="display:inline"
+      onsubmit="return confirm('Hand the current pack to every student?')">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <button class="btn" type="submit">Hand out to everyone</button>
+</form>
+
+{% if preview %}
+<pre class="cmd" style="margin-top:1rem"><code>{{ preview }}</code></pre>
+{% endif %}
+
+<p class="note" style="margin-top:2rem">
+  <a href="/console">← back to the class</a>
+</p>
+
+{% endblock %}

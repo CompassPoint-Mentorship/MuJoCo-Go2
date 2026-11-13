@@ -22,6 +22,8 @@ import re
 import subprocess
 from dataclasses import dataclass
 
+import pathlib
+
 from .db import valid_slug
 from .settings import Settings
 
@@ -133,18 +135,40 @@ class Labs:
     def sync(self, slug: str) -> str:
         return self._run("sync", slug)
 
+    def sync_all(self, dry_run: bool = False) -> str:
+        """Hand the pack to the whole class, or say what that would do."""
+        return self._run("sync", "--all", *(["-n"] if dry_run else []),
+                         check=False)
+
+    def sync_preview(self, slug: str) -> str:
+        return self._run("sync", slug, "-n", check=False)
+
+    def work_dir(self, slug: str) -> pathlib.Path | None:
+        """Where this student's files are, on the host and in here alike."""
+        lab = self.info(slug)
+        if not lab or not lab.work_dir:
+            return None
+        path = pathlib.Path(lab.work_dir)
+        return path if path.is_dir() else None
+
     # ----------------------------------------------------------------- run
 
-    def _run(self, command: str, slug: str, *, check: bool = True) -> str:
-        if not valid_slug(slug):
+    def _run(self, command: str, slug: str, *extra: str,
+             check: bool = True) -> str:
+        # "--all" is the one argument that is not a student name; everything
+        # else has to look like one before it reaches a command line.
+        if slug != "--all" and not valid_slug(slug):
             raise LabError(f"{slug!r} is not a valid student name")
+        for arg in extra:
+            if arg not in ("-n",):
+                raise LabError(f"refusing to pass {arg!r} to the lab script")
         if not self.settings.provision:
             return ""
         if not self.script.is_file():
             raise LabError(f"cannot find {self.script}")
         try:
             out = subprocess.run(
-                [str(self.script), command, slug],
+                [str(self.script), command, slug, *extra],
                 cwd=self.deploy, capture_output=True, text=True,
                 timeout=TIMEOUTS.get(command, 120), check=False,
                 env={**os.environ, "NO_COLOR": "1"})

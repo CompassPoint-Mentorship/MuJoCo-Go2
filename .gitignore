@@ -52,3 +52,8 @@ classroom/*.db-journal
 
 # Downloaded OAuth client files are secrets; they belong in .env, not here.
 client_secret_*.json
+
+# The class's live course pack: content a mentor edits at runtime,
+# seeded from go2/course_pack. Not source, and not the same on two
+# deployments.
+courses/

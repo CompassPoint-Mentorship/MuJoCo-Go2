@@ -31,7 +31,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
+from fastapi import File, UploadFile
+
 from . import auth, db
+from .course import CourseError, Pack, inside, safe_name
 from .labs import LabError, Labs
 from .settings import Settings
 
@@ -74,6 +77,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     db.init(settings.db_path)
     labs = Labs(settings)
+    # The class's own pack, seeded from the bundled one the first time.
+    pack = Pack(settings.course_pack,
+                bundled=settings.repo_root / "go2" / "course_pack").ensure()
     oauth = auth.oauth_client(settings)
     # Two at a time: a docker build is mostly disk and network, and a teacher
     # adding a whole class at once should not start thirty of them.
@@ -292,6 +298,160 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             db.set_state(settings.db_path, slug, "failed", str(exc))
         return RedirectResponse("/console", status_code=303)
 
+    # ------------------------------------------------- course material
+
+    @app.get("/console/course", response_class=HTMLResponse)
+    def console_course(request: Request, preview: str = ""):
+        who = teacher_only(request)
+        if not who:
+            return RedirectResponse("/console", status_code=303)
+        mine = db.lab_for_mentor(settings.db_path, who.email or "")
+        return page(request, "course.html", files=pack.files(), pack=pack,
+                    my_lab=mine, my_files=_lab_files(mine),
+                    preview=preview)
+
+    @app.post("/console/course/upload")
+    async def console_course_upload(request: Request, csrf: str = Form(""),
+                                    upload: UploadFile = File(...)):
+        who = teacher_only(request)
+        if not who or not _check_csrf(request, csrf):
+            return RedirectResponse("/console/course", status_code=303)
+        try:
+            data = await upload.read()
+            pack.write(upload.filename or "", data)
+        except CourseError as exc:
+            return page(request, "course.html", files=pack.files(), pack=pack,
+                        my_lab=db.lab_for_mentor(settings.db_path, who.email or ""),
+                        my_files=_lab_files(db.lab_for_mentor(settings.db_path,
+                                                              who.email or "")),
+                        error=str(exc))
+        return RedirectResponse("/console/course", status_code=303)
+
+    @app.post("/console/course/remove")
+    def console_course_remove(request: Request, name: str = Form(""),
+                              csrf: str = Form("")):
+        who = teacher_only(request)
+        if who and _check_csrf(request, csrf):
+            try:
+                pack.remove(name)
+            except CourseError:
+                pass
+        return RedirectResponse("/console/course", status_code=303)
+
+    @app.post("/console/course/handout")
+    def console_course_handout(request: Request, csrf: str = Form(""),
+                               dry: str = Form("")):
+        """Hand the pack to the class, or show what that would do first."""
+        who = teacher_only(request)
+        if not who or not _check_csrf(request, csrf):
+            return RedirectResponse("/console/course", status_code=303)
+        try:
+            out = labs.sync_all(dry_run=bool(dry))
+        except LabError as exc:
+            out = str(exc)
+        return page(request, "course.html", files=pack.files(), pack=pack,
+                    my_lab=db.lab_for_mentor(settings.db_path, who.email or ""),
+                    my_files=_lab_files(db.lab_for_mentor(settings.db_path,
+                                                          who.email or "")),
+                    preview=out or "(nothing to do -- everyone is up to date)",
+                    dry=bool(dry))
+
+    # ------------------------------------------------- a mentor's own lab
+
+    def _lab_files(student) -> list[str]:
+        """What a mentor has in their lab, as candidates to publish."""
+        if not student:
+            return []
+        work = labs.work_dir(student.slug)
+        if not work:
+            return []
+        return sorted(p.name for p in work.iterdir()
+                      if p.is_file() and not p.name.startswith("."))
+
+    @app.post("/console/mylab")
+    def console_my_lab(request: Request, csrf: str = Form("")):
+        """Give a mentor a lab of their own, the same way a student gets one."""
+        who = teacher_only(request)
+        if not who or not _check_csrf(request, csrf):
+            return RedirectResponse("/console/course", status_code=303)
+        existing = db.lab_for_mentor(settings.db_path, who.email or "")
+        if not existing:
+            base = db.slug_for((who.email or who.name).split("@")[0]) or "mentor"
+            slug = db.slug_for(f"mentor-{base}")
+            student = db.add(settings.db_path, slug=slug,
+                             display=f"{who.name} (mentor lab)",
+                             email=who.email, created_by=who.email or who.name,
+                             kind="mentor")
+            existing = student
+        db.set_state(settings.db_path, existing.slug, "provisioning", "starting...")
+        app.state.pool.submit(provision, existing.slug)
+        return RedirectResponse("/console/course", status_code=303)
+
+    @app.post("/console/course/publish")
+    def console_publish(request: Request, csrf: str = Form(""),
+                        names: list[str] = Form(default=[])):
+        """Copy files out of a mentor's lab into the class's pack."""
+        who = teacher_only(request)
+        if not who or not _check_csrf(request, csrf):
+            return RedirectResponse("/console/course", status_code=303)
+        mine = db.lab_for_mentor(settings.db_path, who.email or "")
+        work = labs.work_dir(mine.slug) if mine else None
+        errors = []
+        if work:
+            for name in names:
+                try:
+                    pack.copy_in(inside(work, name))
+                except (CourseError, OSError) as exc:
+                    errors.append(f"{name}: {exc}")
+        return page(request, "course.html", files=pack.files(), pack=pack,
+                    my_lab=mine, my_files=_lab_files(mine),
+                    error=" / ".join(errors) or None,
+                    preview=("" if errors else
+                             f"published {len(names)} file(s) into the pack -- "
+                             "hand them out when you are ready"))
+
+    # ------------------------------------------------- a student's work
+
+    @app.get("/console/work/{slug}", response_class=HTMLResponse)
+    def console_work(request: Request, slug: str, open: str = ""):
+        """What a student has in their folder, for a mentor to look at."""
+        if not teacher_only(request):
+            return RedirectResponse("/console", status_code=303)
+        student = db.get(settings.db_path, slug)
+        work = labs.work_dir(slug) if student else None
+        listing, shown, body = [], None, None
+        if work:
+            listing = sorted(
+                ({"name": p.name, "size": p.stat().st_size}
+                 for p in work.iterdir()
+                 if p.is_file() and not p.name.startswith(".")),
+                key=lambda f: f["name"])
+            if open:
+                try:
+                    shown = inside(work, open)
+                    body = _preview(shown)
+                except (CourseError, OSError) as exc:
+                    body = f"(cannot show this file: {exc})"
+        return page(request, "work.html", student=student, files=listing,
+                    work=work, shown=shown.name if shown else None, body=body)
+
+    @app.get("/console/work/{slug}/download")
+    def console_download(request: Request, slug: str, name: str = ""):
+        if not teacher_only(request):
+            return RedirectResponse("/console", status_code=303)
+        work = labs.work_dir(slug)
+        if not work:
+            return PlainTextResponse("no such lab\n", status_code=404)
+        try:
+            path = inside(work, name)
+        except CourseError as exc:
+            return PlainTextResponse(f"{exc}\n", status_code=400)
+        if not path.is_file():
+            return PlainTextResponse("no such file\n", status_code=404)
+        return Response(path.read_bytes(), media_type="application/octet-stream",
+                        headers={"Content-Disposition":
+                                 f'attachment; filename="{path.name}"'})
+
     @app.post("/console/mentors/add")
     def console_add_mentor(request: Request, email: str = Form(""),
                            csrf: str = Form("")):
@@ -396,6 +556,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             media_type="text/x-shellscript; charset=utf-8",
             headers={"Cache-Control": "no-store, max-age=0",
                      "X-Content-Type-Options": "nosniff"})
+
+    def _preview(path: pathlib.Path, limit: int = 60_000) -> str:
+        """A readable view of one file, for marking rather than running.
+
+        A notebook is shown as its cells' source: outputs are noise when the
+        question is "what did they write", and some of them are images.
+        """
+        import json
+
+        data = path.read_bytes()[: limit * 2]
+        if path.suffix.lower() == ".ipynb":
+            try:
+                nb = json.loads(data.decode("utf-8"))
+            except Exception:  # noqa: BLE001 - fall through to raw text
+                nb = None
+            if isinstance(nb, dict) and isinstance(nb.get("cells"), list):
+                parts = []
+                for i, cell in enumerate(nb["cells"], 1):
+                    kind = cell.get("cell_type", "?")
+                    source = "".join(cell.get("source", []))
+                    parts.append(f"--- cell {i} [{kind}] ---\n{source}")
+                return "\n\n".join(parts)[:limit]
+        try:
+            return data.decode("utf-8")[:limit]
+        except UnicodeDecodeError:
+            return (f"({path.suffix.lstrip('.') or 'binary'} file, "
+                    f"{path.stat().st_size // 1024} KB -- download it to open)")
 
     @app.api_route("/healthz", methods=["GET", "HEAD"])
     def healthz():

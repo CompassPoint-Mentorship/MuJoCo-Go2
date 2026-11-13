@@ -64,6 +64,10 @@ class Settings:
     # gateway's address and nobody else's. "*" trusts every caller, which is
     # only safe when nothing but the proxy can reach the port at all.
     trusted_proxy: str = "127.0.0.1,::1"
+    # The class's own course pack: what the console edits and what every
+    # sync hands out. Separate from the pack bundled in the go2 package,
+    # which is what a laptop install gets and must stay pristine.
+    course_pack: pathlib.Path = REPO_ROOT / "courses" / "live"
 
     @property
     def google_configured(self) -> bool:
@@ -98,4 +102,6 @@ class Settings:
             teachers=frozenset(teachers),
             provision=os.environ.get("GO2_PROVISION", "1") != "0",
             trusted_proxy=os.environ.get("GO2_TRUSTED_PROXY", "127.0.0.1,::1"),
+            course_pack=pathlib.Path(os.environ.get(
+                "GO2_COURSE_PACK", str(REPO_ROOT / "courses" / "live"))),
         )

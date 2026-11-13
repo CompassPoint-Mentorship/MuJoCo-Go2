@@ -41,6 +41,10 @@ def settings(tmp_path) -> Settings:
         session_secret="test-secret-not-a-real-one",
         teachers=frozenset({TEACHER}),
         provision=False,
+        # Its own pack, or the tests edit the class's real course material --
+        # which they did, and which removed a live notebook before anyone
+        # noticed. A test that writes outside tmp_path is a bug in the test.
+        course_pack=tmp_path / "pack",
     )
 
 
@@ -457,3 +461,134 @@ def test_a_student_cannot_make_themselves_a_mentor(client):
                 follow_redirects=True)
 
     assert not db.is_mentor(client.settings.db_path, "ada@gmail.com")
+
+
+# ------------------------------------------------- course material, labs, work
+
+def test_the_class_pack_is_seeded_from_the_bundled_one_and_is_separate(settings):
+    """A mentor's edit must never reach a student's laptop install.
+
+    The pack inside the go2 package is what `curl ... | bash` downloads. The
+    class works from a copy, so changing the course does not change what the
+    installer hands out.
+    """
+    from classroom.course import Pack
+
+    bundled = pathlib.Path(__file__).resolve().parents[1] / "go2" / "course_pack"
+    pack = Pack(settings.course_pack, bundled=bundled).ensure()
+
+    names = {f.name for f in pack.files()}
+    assert "01_hello_dog.ipynb" in names
+    assert pack.path != bundled
+    pack.remove("01_hello_dog.ipynb")
+    assert (bundled / "units" / "01_hello_dog.ipynb").is_file(), \
+        "removing from the class pack touched the shipped one"
+
+
+def test_only_course_shaped_files_can_be_uploaded(client):
+    from classroom.course import CourseError, Pack
+
+    pack = Pack(client.settings.course_pack)
+    for name in ("lesson.sh", "../../etc/passwd", "evil.ipynb.exe", "",
+                 "note.py\x00.sh"):
+        with pytest.raises(CourseError):
+            pack.write(name, b"x")
+
+    # A name with a path in it keeps only its last component -- browsers do
+    # send them, and the file belongs in units/ either way.
+    landed = pack.write("../../a/b.py", b"x")
+    assert landed.name == "b.py"
+    assert landed.path.parent == pack.units.resolve()
+
+    unit = pack.write("extra_notes.md", b"# notes\n")
+    assert unit.name == "extra_notes.md"
+
+
+def test_a_broken_notebook_is_refused_before_a_class_gets_it(client):
+    from classroom.course import CourseError, Pack
+
+    pack = Pack(client.settings.course_pack)
+    with pytest.raises(CourseError, match="readable notebook|no cells"):
+        pack.write("broken.ipynb", b"{oh no")
+    with pytest.raises(CourseError, match="no cells"):
+        pack.write("empty.ipynb", b'{"metadata": {}}')
+    pack.write("fine.ipynb", b'{"cells": [], "nbformat": 4}')
+
+
+def test_uploading_and_removing_course_files_through_the_console(client):
+    sign_in_as(client, kind="teacher", email=TEACHER)
+    csrf = _csrf(client, "/console")
+
+    client.post("/console/course/upload",
+                data={"csrf": csrf},
+                files={"upload": ("exercise.py", b"dog.move(vx=0.2)\n", "text/x-python")},
+                follow_redirects=True)
+    page = client.get("/console/course").text
+    assert "exercise.py" in page
+
+    client.post("/console/course/remove",
+                data={"name": "exercise.py", "csrf": csrf}, follow_redirects=True)
+    assert "exercise.py" not in client.get("/console/course").text
+
+
+def test_a_student_cannot_touch_the_course_material(client):
+    db.add(client.settings.db_path, slug="ada", display="Ada", email=None,
+           created_by="t")
+    sign_in_as(client, kind="student", name="Ada", slug="ada")
+
+    r = client.get("/console/course", follow_redirects=False)
+    assert r.status_code == 303
+
+    client.post("/console/course/upload", data={"csrf": SESSION_CSRF},
+                files={"upload": ("mine.py", b"x", "text/x-python")},
+                follow_redirects=True)
+    from classroom.course import Pack
+    assert "mine.py" not in {f.name for f in Pack(client.settings.course_pack).files()}
+
+
+def test_a_mentor_lab_is_created_but_stays_off_the_class_roster(client):
+    sign_in_as(client, kind="teacher", email=TEACHER, name="Mentor")
+    csrf = _csrf(client, "/console")
+
+    client.post("/console/mylab", data={"csrf": csrf}, follow_redirects=True)
+
+    mine = db.lab_for_mentor(client.settings.db_path, TEACHER)
+    assert mine is not None and mine.kind == "mentor"
+    assert mine.slug not in [s.slug for s in db.all_students(client.settings.db_path)]
+    assert ("create", mine.slug) in client.calls
+
+
+def test_a_mentor_can_read_a_students_work_and_nobody_else_can(client, tmp_path):
+    work = tmp_path / "ada"
+    work.mkdir()
+    (work / "my_dog.ipynb").write_text(
+        '{"cells": [{"cell_type": "code", "source": ["dog.backflip()\\n"]}]}')
+    db.add(client.settings.db_path, slug="ada", display="Ada", email=None,
+           created_by="t")
+    monkey = lambda self, slug: work if slug == "ada" else None   # noqa: E731
+    labs.Labs.work_dir = monkey
+
+    sign_in_as(client, kind="teacher", email=TEACHER)
+    page = client.get("/console/work/ada?open=my_dog.ipynb").text
+    assert "dog.backflip()" in page, "the mentor should see what was written"
+
+    sign_in_as(client, kind="student", name="Ada", slug="ada")
+    assert client.get("/console/work/ada", follow_redirects=False).status_code == 303
+
+
+def test_a_students_work_cannot_be_read_outside_their_folder(client, tmp_path):
+    """The one place a path from a URL meets the file system."""
+    work = tmp_path / "ada"
+    work.mkdir()
+    (tmp_path / "secret.txt").write_text("not theirs")
+    db.add(client.settings.db_path, slug="ada", display="Ada", email=None,
+           created_by="t")
+    labs.Labs.work_dir = lambda self, slug: work
+
+    sign_in_as(client, kind="teacher", email=TEACHER)
+    for attempt in ("../secret.txt", "..%2Fsecret.txt", "/etc/hostname"):
+        page = client.get(f"/console/work/ada?open={attempt}").text
+        assert "not theirs" not in page
+        r = client.get(f"/console/work/ada/download?name={attempt}")
+        assert r.status_code in (400, 404), attempt
+        assert "not theirs" not in r.text

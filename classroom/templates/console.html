@@ -3,7 +3,10 @@
 {% block body %}
 
 <h1>Class <span class="accent">console</span></h1>
-<p class="lede">{{ rows|length }} student{{ '' if rows|length == 1 else 's' }} on the list.</p>
+<p class="lede">
+  {{ rows|length }} student{{ '' if rows|length == 1 else 's' }} on the list.
+  <a href="/console/course">Course material and your own lab →</a>
+</p>
 
 {% if error %}<div class="error">{{ error }}</div>{% endif %}
 
@@ -45,7 +48,8 @@
   <tr data-slug="{{ s.slug }}">
     <td>
       <strong>{{ s.display }}</strong><br>
-      <span class="note">{{ s.slug }}{% if s.email %} · {{ s.email }}{% endif %}</span>
+      <span class="note">{{ s.slug }}{% if s.email %} · {{ s.email }}{% endif %}</span><br>
+      <a class="note" href="/console/work/{{ s.slug }}">their work →</a>
     </td>
     <td><span class="code-chip">{{ s.join_code }}</span></td>
     <td>
