@@ -119,6 +119,7 @@ class Link:
         self._lock = threading.Lock()
         self._pending: dict | None = None
         self._note = ""
+        self._feedback: tuple[float, dict] | None = None
 
     # ------------------------------------------------------------ who
 
@@ -186,6 +187,36 @@ class Link:
         with self._lock:
             self._pending = None
             self._note = ""
+
+    # -------------------------------------------------------- feedback
+
+    def feedback(self, max_age: float = 60.0) -> dict:
+        """Unseen feedback from a mentor, asked of the site at most once a minute.
+
+        The strip asks for its status often -- every three seconds while a
+        sign-in is pending -- and the class site should not hear about it.
+        Offline, or not signed in, there is simply nothing new to show.
+        """
+        identity = self.who()
+        if not identity:
+            return {"unseen": 0}
+        with self._lock:
+            cached = self._feedback
+        if cached and time.time() - cached[0] < max_age:
+            return cached[1]
+        try:
+            status, body = _request("GET", f"{site_url()}/api/comments",
+                                    headers={"Authorization": f"Bearer {identity['key']}"})
+        except (urllib.error.URLError, OSError):
+            status, body = 0, {}
+        if status == 401:
+            forget_identity()
+            body = {"unseen": 0}
+        elif status != 200:
+            body = cached[1] if cached else {"unseen": 0}
+        with self._lock:
+            self._feedback = (time.time(), body)
+        return body
 
     # --------------------------------------------------------- hand in
 

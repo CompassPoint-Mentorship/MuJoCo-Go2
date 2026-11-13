@@ -1049,3 +1049,132 @@ def test_the_laptop_side_end_to_end(client, tmp_path, monkeypatch):
     with pytest.raises(PermissionError):
         link.hand_in("my_square.ipynb")
     assert link.who() is None
+
+
+# ------------------------------------------- email: drafts in the mentor's Gmail
+
+def _query(url):
+    from urllib.parse import parse_qs, urlparse
+    return {k: v[0] for k, v in
+            parse_qs(urlparse(url).query, keep_blank_values=True).items()}
+
+
+def test_an_invite_opens_in_the_sending_mentors_own_gmail(client):
+    """Through mentor A means A's mailbox -- not whichever account is default."""
+    import html
+    import re
+
+    student = db.add(client.settings.db_path, slug="ada", display="Ada",
+                     email="ada@gmail.com", created_by="t")
+    sign_in_as(client, kind="teacher", email=TEACHER, name="Ms Mentor")
+    page = client.get("/console").text
+
+    link = html.unescape(re.search(r'href="(https://mail\.google\.com/[^"]+)"', page).group(1))
+    q = _query(link)
+    assert q["authuser"] == TEACHER, "the draft would open in someone else's mailbox"
+    assert q["to"] == "ada@gmail.com"
+    assert student.join_code in q["body"]
+    assert "robo-dog.example.org/student" in q["body"]
+    assert "Ms Mentor" in q["body"]
+
+
+def test_two_mentors_get_drafts_in_two_different_mailboxes(client):
+    import html
+    import re
+
+    db.add(client.settings.db_path, slug="ada", display="Ada", email="ada@gmail.com",
+           created_by="t")
+    db.add_mentor(client.settings.db_path, "second@gmail.com", added_by=TEACHER)
+    senders = set()
+    for email in (TEACHER, "second@gmail.com"):
+        sign_in_as(client, kind="teacher", email=email, name=email)
+        page = client.get("/console").text
+        link = html.unescape(re.search(r'href="(https://mail\.google\.com/[^"]+)"', page).group(1))
+        senders.add(_query(link)["authuser"])
+    assert senders == {TEACHER, "second@gmail.com"}
+
+
+def test_a_student_without_an_email_gets_no_draft(client):
+    db.add(client.settings.db_path, slug="ada", display="Ada", email=None, created_by="t")
+    sign_in_as(client, kind="teacher", email=TEACHER)
+    page = client.get("/console").text
+    assert "no email" in page
+    assert "mail.google.com" not in page
+
+
+def test_an_announcement_hides_every_students_address_from_the_others(client):
+    import html
+    import re
+
+    for slug, email in (("ada", "ada@gmail.com"), ("bob", "bob@gmail.com"), ("cy", None)):
+        db.add(client.settings.db_path, slug=slug, display=slug.title(), email=email,
+               created_by="t")
+    sign_in_as(client, kind="teacher", email=TEACHER, name="Ms Mentor")
+    r = client.post("/console/announce", data={
+        "subject": "No class Tuesday", "message": "We are off for Thanksgiving.",
+        "csrf": SESSION_CSRF})
+
+    link = html.unescape(re.search(r'href="(https://mail\.google\.com/[^"]+)"', r.text).group(1))
+    q = _query(link)
+    assert q["authuser"] == TEACHER
+    assert q["to"] == TEACHER, "students must not be in To:"
+    assert set(q["bcc"].split(",")) == {"ada@gmail.com", "bob@gmail.com"}
+    assert "Hi everyone" in q["body"] and "Thanksgiving" in q["body"]
+    assert "Cy" in r.text, "the page must say who it will not reach"
+
+
+def test_a_stored_address_cannot_inject_extra_recipients(client):
+    """Addresses come from the roster, but the roster came from a form."""
+    from classroom import mail
+
+    link = mail.gmail_draft(sender=TEACHER, to="ada@gmail.com,evil@x.org",
+                            subject="s", body="b", bcc=["ok@x.org", "bad@x.org\nBcc: z@x"])
+    q = _query(link)
+    assert q["to"] == "", "a comma-joined pair is not one address"
+    assert q["bcc"] == "ok@x.org", "a line break must not smuggle in a header"
+
+
+def test_the_console_never_sends_mail_itself(client):
+    """No SMTP, no mail settings: the mentor presses Send, in their own Gmail."""
+    import pathlib
+
+    src = (pathlib.Path(__file__).resolve().parents[1] / "classroom")
+    for py in src.glob("*.py"):
+        text = py.read_text()
+        assert "import smtplib" not in text and "smtplib." not in text, py.name
+
+
+def test_feedback_reaches_the_student_page_and_the_laptop(client):
+    path = client.settings.db_path
+    db.add(path, slug="ada", display="Ada", email="ada@gmail.com", created_by="t")
+    key, _ = _connect(client)
+    laptop = _laptop(client)
+    auth_header = {"Authorization": f"Bearer {key}"}
+    hid = laptop.post("/api/handin", headers=auth_header,
+                      files={"file": ("my_square.ipynb", b'{"cells": []}')}).json()["id"]
+
+    sign_in_as(client, kind="teacher", email=TEACHER, name="Ms Mentor")
+    client.post(f"/console/handin/{hid}/comment",
+                data={"body": "Nice square! Make the turn a function.", "csrf": SESSION_CSRF})
+    page = client.get(f"/console/handin/{hid}").text
+    assert "Make the turn a function" in page
+    assert "mail.google.com" in page and "email this to Ada" in page
+
+    news = laptop.get("/api/comments", headers=auth_header).json()
+    assert news["unseen"] == 1 and news["latest"]["handin"] == "my_square.ipynb"
+
+    sign_in_as(client, kind="student", name="Ada", slug="ada")
+    assert "Make the turn a function" in client.get("/student").text
+    assert laptop.get("/api/comments", headers=auth_header).json()["unseen"] == 0, \
+        "reading it on the student page should clear the flag"
+
+
+def test_a_student_cannot_leave_feedback(client):
+    db.add(client.settings.db_path, slug="ada", display="Ada", email=None, created_by="t")
+    key, _ = _connect(client)
+    hid = _laptop(client).post("/api/handin", headers={"Authorization": f"Bearer {key}"},
+                               files={"file": ("a.py", b"x")}).json()["id"]
+    sign_in_as(client, kind="student", name="Ada", slug="ada")
+    client.post(f"/console/handin/{hid}/comment",
+                data={"body": "A+ from me", "csrf": SESSION_CSRF})
+    assert db.comments_for_handin(client.settings.db_path, hid) == []

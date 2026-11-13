@@ -16,4 +16,41 @@
   change if they keep working.
 </p>
 <pre class="cmd"><code>{{ body }}</code></pre>
+
+<h2>Feedback</h2>
+{% for c in comments %}
+<div class="card">
+  <p style="white-space:pre-wrap; margin-top:0">{{ c.body }}</p>
+  <p class="note">
+    {{ c.author }} · {{ c.created_at }}
+    {% if c.seen_at %} · seen by the student{% endif %}
+  </p>
+  {% if c.draft %}
+    <a class="btn small" href="{{ c.draft }}" target="_blank" rel="noopener"
+       data-draft-kind="feedback" data-slug="{{ h.slug }}"
+       data-to="{{ student.email }}" data-subject="Feedback on {{ h.name }}">✉ email this to {{ student.display }}</a>
+    <a class="note" href="{{ c.mailto }}" style="margin-left:0.6rem"
+       data-draft-kind="feedback" data-slug="{{ h.slug }}">other mail app</a>
+  {% elif student and not student.email %}
+    <span class="note">No email on file — they see it on their student page
+      and their laptop's strip.</span>
+  {% endif %}
+</div>
+{% else %}
+<p class="note">No feedback yet.</p>
+{% endfor %}
+
+<form method="post" action="/console/handin/{{ h.id }}/comment">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label for="comment">Add feedback</label>
+  <textarea id="comment" name="body" rows="4" required
+            style="width:100%; font:inherit; padding:0.5rem; border:1px solid #c3cbd2; border-radius:8px"
+            placeholder="Nice square! Try making the turn a function so you don't repeat it four times."></textarea>
+  <p><button class="btn" type="submit">Save feedback</button></p>
+</form>
+<p class="note">
+  Saved feedback shows on {{ student.display if student else 'the student' }}'s
+  student page and on their laptop. Emailing it is your choice, from your own
+  Gmail, with the button that appears above.
+</p>
 {% endblock %}

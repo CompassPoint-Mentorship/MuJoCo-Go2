@@ -59,6 +59,29 @@
   </p>
 </div>
 
+{% if feedback %}
+<h2>Feedback from your mentor</h2>
+{% for c in feedback %}
+<div class="card{% if not c.seen_at %} highlight{% endif %}">
+  <p class="note" style="margin-top:0">
+    On <strong>{{ c.handin_name }}</strong> · {{ c.author }} · {{ c.created_at[:10] }}
+    {% if not c.seen_at %} · <strong>new</strong>{% endif %}
+  </p>
+  <p style="white-space:pre-wrap; margin-bottom:0">{{ c.body }}</p>
+</div>
+{% endfor %}
+{% endif %}
+
+{% if handins %}
+<h2>What you have handed in</h2>
+<table>
+  <tr><th>File</th><th>When</th></tr>
+  {% for h in handins %}
+  <tr><td>{{ h.name }}</td><td class="note">{{ h.created_at }}</td></tr>
+  {% endfor %}
+</table>
+{% endif %}
+
 <h2>If something looks wrong</h2>
 <p class="note">
   Tell your mentor what the screen says, and include the build number printed

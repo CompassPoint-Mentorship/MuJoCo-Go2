@@ -13,6 +13,7 @@
 <link rel="icon" href="/static/brand/icon.png?v={{ v }}" type="image/png" sizes="512x512">
 <link rel="apple-touch-icon" href="/static/brand/apple-icon.png?v={{ v }}" sizes="180x180">
 <meta name="theme-color" content="#24282b">
+<meta name="csrf" content="{{ csrf }}">
 </head>
 <body>
 <header class="bar">
@@ -48,5 +49,20 @@
   <span class="sep">·</span>
   <span>the dog is simulated; no robot is connected to this site</span>
 </footer>
+<script>
+// A draft link opens the mentor's own Gmail. Before it goes, tell the console
+// a draft was opened -- intent, not delivery: whether they pressed Send is
+// between them and Gmail. keepalive lets it finish as the tab changes.
+document.addEventListener('click', function (e) {
+  var a = e.target.closest && e.target.closest('a[data-draft-kind]');
+  if (!a) return;
+  var body = new URLSearchParams({
+    kind: a.dataset.draftKind, slug: a.dataset.slug || '',
+    to_addr: a.dataset.to || '', subject: a.dataset.subject || '',
+    csrf: document.querySelector('meta[name="csrf"]').content
+  });
+  fetch('/console/drafted', { method: 'POST', body: body, keepalive: true }).catch(function () {});
+});
+</script>
 </body>
 </html>

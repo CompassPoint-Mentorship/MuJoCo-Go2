@@ -87,6 +87,34 @@ CREATE TABLE IF NOT EXISTS handins (
 );
 CREATE INDEX IF NOT EXISTS handins_slug ON handins (slug, created_at);
 
+-- A mentor's comment on a hand-in. `seen_at` is set when the student's page
+-- shows it, which is what "new" means on their laptop's strip.
+CREATE TABLE IF NOT EXISTS comments (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    handin_id   INTEGER NOT NULL,
+    slug        TEXT NOT NULL,
+    author      TEXT NOT NULL,
+    body        TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    seen_at     TEXT
+);
+CREATE INDEX IF NOT EXISTS comments_slug ON comments (slug, created_at);
+
+-- Every email draft a mentor opened from the console. The console never
+-- sends mail -- the mentor does, from their own Gmail -- so this records
+-- intent, not delivery: enough to answer "have I already invited Ada?".
+CREATE TABLE IF NOT EXISTS outbox (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    to_addr     TEXT NOT NULL,
+    subject     TEXT NOT NULL,
+    kind        TEXT NOT NULL,
+    slug        TEXT,
+    sent_by     TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'drafted',
+    error       TEXT NOT NULL DEFAULT ''
+);
+
 CREATE TABLE IF NOT EXISTS mentors (
     email       TEXT PRIMARY KEY,
     display     TEXT NOT NULL DEFAULT '',
@@ -388,6 +416,74 @@ def handin(path: pathlib.Path, handin_id: int) -> dict | None:
     with connect(path) as conn:
         row = conn.execute("SELECT * FROM handins WHERE id = ?",
                            (handin_id,)).fetchone()
+    return dict(row) if row else None
+
+
+# ------------------------------------------------------------ comments
+
+def add_comment(path: pathlib.Path, *, handin_id: int, slug: str,
+                author: str, body: str) -> dict:
+    body = (body or "").strip()
+    if not body:
+        raise ValueError("an empty comment helps nobody")
+    if len(body) > 5000:
+        raise ValueError("that comment is over 5000 characters")
+    with connect(path) as conn:
+        cur = conn.execute(
+            "INSERT INTO comments (handin_id, slug, author, body, created_at)"
+            " VALUES (?,?,?,?,?)", (handin_id, slug, author, body, _now()))
+        row = conn.execute("SELECT * FROM comments WHERE id = ?",
+                           (cur.lastrowid,)).fetchone()
+    return dict(row)
+
+
+def comments_for_handin(path: pathlib.Path, handin_id: int) -> list[dict]:
+    with connect(path) as conn:
+        rows = conn.execute("SELECT * FROM comments WHERE handin_id = ?"
+                            " ORDER BY created_at, id", (handin_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def comments_for_student(path: pathlib.Path, slug: str) -> list[dict]:
+    """Newest first, each with the name of the file it is about."""
+    with connect(path) as conn:
+        rows = conn.execute(
+            "SELECT c.*, h.name AS handin_name FROM comments c"
+            " JOIN handins h ON h.id = c.handin_id"
+            " WHERE c.slug = ? ORDER BY c.created_at DESC, c.id DESC",
+            (slug,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def mark_comments_seen(path: pathlib.Path, slug: str) -> None:
+    with connect(path) as conn:
+        conn.execute("UPDATE comments SET seen_at = ? WHERE slug = ?"
+                     " AND seen_at IS NULL", (_now(), slug))
+
+
+# ------------------------------------------------------------ outbox
+
+def log_mail(path: pathlib.Path, *, to_addr: str, subject: str, kind: str,
+             slug: str | None, sent_by: str) -> int:
+    with connect(path) as conn:
+        cur = conn.execute(
+            "INSERT INTO outbox (to_addr, subject, kind, slug, sent_by, created_at)"
+            " VALUES (?,?,?,?,?,?)", (to_addr, subject, kind, slug, sent_by, _now()))
+        return cur.lastrowid
+
+
+def outbox(path: pathlib.Path, limit: int = 100) -> list[dict]:
+    with connect(path) as conn:
+        rows = conn.execute("SELECT * FROM outbox ORDER BY id DESC LIMIT ?",
+                            (limit,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def drafted_for(path: pathlib.Path, slug: str, kind: str) -> dict | None:
+    """The most recent draft of this kind for this student, if any."""
+    with connect(path) as conn:
+        row = conn.execute("SELECT * FROM outbox WHERE slug = ? AND kind = ?"
+                           " ORDER BY id DESC LIMIT 1", (slug, kind)).fetchone()
     return dict(row) if row else None
 
 

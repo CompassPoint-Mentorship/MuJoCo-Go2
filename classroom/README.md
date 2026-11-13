@@ -215,6 +215,45 @@ a snapshot, never a sync, so there is never a "which version wins" to explain.
 Hand-ins appear on the student's work page in the console, and are stored under
 `handins/<name>/` (`GO2_HANDIN_DIR`), 5 MB per file.
 
+## Email — sent by the mentor, never by the site
+
+When mentor A emails anyone, it goes out **from A's own Gmail**, lands in A's
+Sent folder, and replies come back to A, because A presses Send. The console
+writes the draft and opens it; it holds no mail credentials and runs no mail
+server.
+
+| Button | Opens in your Gmail |
+|---|---|
+| **✉ invite** on a student | to the student: their join code, `/student` link and the install line |
+| **✉ invite** on a mentor | to the mentor: the console link |
+| **Email the class** | to you, with every student who has an address in **BCC** |
+| **✉ email this** on feedback | to the student: your comment, quoted |
+
+Every draft link carries `authuser=<your console address>`. Without it, Gmail
+opens whichever account is the browser's default — so "sent through A" would
+quietly become "sent through A's personal account" for anyone with two Google
+accounts signed in. An *other mail app* link (`mailto:`) sits beside each one
+for a mentor whose address is not a Gmail mailbox.
+
+Why drafts, not one-click sending: Gmail's send-only API permission would
+work, but the server would then hold a send-as-you credential for every
+mentor, and a compromised class server could email parents as their child's
+mentor. A draft costs one click, stores nothing, and means a mentor reads
+every message before it reaches a student.
+
+Only addresses already on the roster or the mentor list are ever used, and
+each is checked to be exactly one address, so a stored value cannot add
+recipients. The outbox (`outbox` table) records that a draft was *opened* —
+intent, not delivery; whether Send was pressed is between the mentor and
+Gmail.
+
+## Feedback
+
+On a hand-in, **Add feedback** saves a comment. The student sees it on their
+`/student` page, and their laptop's strip shows *💬 New feedback on
+my_square.ipynb* until they read it. Emailing it is the mentor's choice, with
+the **✉ email this** button that appears under each comment.
+
 ## Running a class
 
 1. Sign in at `/console` with Google. To add a co-mentor, put their Google

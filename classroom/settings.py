@@ -71,6 +71,7 @@ class Settings:
     # Homework handed in from laptops: small files, kept per student.
     handin_dir: pathlib.Path = REPO_ROOT / "handins"
 
+
     @property
     def google_configured(self) -> bool:
         return bool(self.google_client_id and self.google_client_secret)

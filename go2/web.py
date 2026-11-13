@@ -816,6 +816,7 @@ class Classroom:
             self.actions["class-connect"] = self._connect
             self.actions["class-signout"] = self._sign_out
             self.actions["class-handin"] = self._hand_in
+            self.actions["class-feedback"] = self._read_feedback
 
     def status(self) -> dict:
         items = []
@@ -842,6 +843,14 @@ class Classroom:
                                 "opens": True, "busy": "opening your browser..."}}]
         items = [{"id": "me", "tone": "ok", "text": f"{me.get('name') or 'signed in'} \u2713",
                   "action": {"label": "sign out", "do": "class-signout"}}]
+        fb = self.link.feedback()
+        if fb.get("unseen"):
+            latest = (fb.get("latest") or {}).get("handin", "your homework")
+            text = (f"\U0001F4AC New feedback on {latest}" if fb["unseen"] == 1
+                    else f"\U0001F4AC {fb['unseen']} new pieces of feedback")
+            items.append({"id": "feedback", "tone": "news", "text": text,
+                          "action": {"label": "read", "do": "class-feedback",
+                                     "opens": True}})
         choices = self.link.candidates()
         if choices:
             items.append({"id": "handin", "tone": "quiet", "text": "hand in",
@@ -857,6 +866,15 @@ class Classroom:
         return {"open": url,
                 "message": "A browser tab opened \u2014 say yes there. "
                            "This strip updates by itself."}
+
+    def _read_feedback(self, choice=None) -> dict:
+        page = self.link.feedback(max_age=0).get("page")
+        if not page:
+            return {"message": "could not reach the class site; try again later"}
+        # Reading it on the student page is what marks it seen, so the flag
+        # clears itself next time the strip asks.
+        self.link._feedback = None
+        return {"open": page}
 
     def _sign_out(self, choice=None) -> str:
         self.link.sign_out()

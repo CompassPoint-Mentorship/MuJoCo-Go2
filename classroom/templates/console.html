@@ -38,6 +38,7 @@
 <table>
   <tr>
     <th>Student</th>
+    <th>Email</th>
     <th>Join code</th>
     <th>Lab</th>
     <th>Link</th>
@@ -50,6 +51,18 @@
       <strong>{{ s.display }}</strong><br>
       <span class="note">{{ s.slug }}{% if s.email %} · {{ s.email }}{% endif %}</span><br>
       <a class="note" href="/console/work/{{ s.slug }}">their work →</a>
+    </td>
+    <td>
+      {% if row.draft %}
+        <a class="btn small" href="{{ row.draft }}" target="_blank" rel="noopener"
+           data-draft-kind="invite" data-slug="{{ s.slug }}" data-to="{{ s.email }}"
+           data-subject="Your Robo Dog class: how to start">✉ invite</a>
+        <br><a class="note" href="{{ row.mailto }}" data-draft-kind="invite"
+               data-slug="{{ s.slug }}" data-to="{{ s.email }}">other mail app</a>
+        {% if row.invited %}<br><span class="note">draft opened {{ row.invited.created_at[:10] }}</span>{% endif %}
+      {% else %}
+        <span class="note">no email</span>
+      {% endif %}
     </td>
     <td><span class="code-chip">{{ s.join_code }}</span></td>
     <td>
@@ -87,6 +100,30 @@
   {% endfor %}
 </table>
 
+<h2>Email the class</h2>
+<div class="card">
+  <form method="post" action="/console/announce">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div>
+      <label for="ann-subject">Subject</label>
+      <input id="ann-subject" name="subject" type="text" style="width:100%" required
+             placeholder="No class next Tuesday">
+    </div>
+    <div style="margin-top:0.6rem">
+      <label for="ann-message">Message</label>
+      <textarea id="ann-message" name="message" rows="5" required
+                style="width:100%; font:inherit; padding:0.5rem; border:1px solid #c3cbd2; border-radius:8px"></textarea>
+    </div>
+    <p><button class="btn" type="submit">Write the email</button></p>
+  </form>
+  <p class="note">
+    This writes the email; it does not send it. The next page opens it in
+    <strong>your own Gmail</strong>, addressed to you with every student who has
+    an email in BCC — so nobody sees anyone else's address — and you press
+    Send. It goes out from your account, and replies come to you.
+  </p>
+</div>
+
 <h2>Mentors</h2>
 <p class="note">
   Anyone here can open this console, which starts and stops containers on the
@@ -106,6 +143,11 @@
       {% endif %}
     </td>
     <td>
+      {% if m.draft %}
+        <a class="btn small" href="{{ m.draft }}" target="_blank" rel="noopener"
+           data-draft-kind="mentor-invite" data-to="{{ m.email }}"
+           data-subject="You are a mentor on the Robo Dog class console">✉ invite</a>
+      {% endif %}
       {% if not m.fixed %}
       <form method="post" action="/console/mentors/remove" style="display:inline"
             onsubmit="return confirm('Remove {{ m.email }}? They lose the console immediately.')">
@@ -129,8 +171,8 @@
 </form>
 <p class="note">
   Any Google account works. They sign in at
-  <code>{{ settings.base_url }}/console</code> — send them that link; nothing
-  is emailed from here. Addresses set in <code>GO2_TEACHERS</code> on the
+  <code>{{ settings.base_url }}/console</code>; <strong>✉ invite</strong> opens
+  that link in an email from your own Gmail. Addresses set in <code>GO2_TEACHERS</code> on the
   server cannot be removed from this page, which is what stops a console from
   locking out its own owners.
 </p>

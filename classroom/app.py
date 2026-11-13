@@ -34,6 +34,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from fastapi import File, UploadFile
 
 from . import auth, db
+from . import mail
 from .course import CourseError, Pack, inside, safe_name
 from .labs import LabError, Labs
 from .settings import Settings
@@ -180,7 +181,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except LabError as exc:
             db.set_state(settings.db_path, slug, "failed", str(exc))
 
-    def mentor_rows() -> list[dict]:
+    def mentor_rows(who=None) -> list[dict]:
         """Both lists, marked by where they came from.
 
         The environment's entries cannot be removed here: they are the root
@@ -189,25 +190,39 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """
         rows = [{"email": e, "fixed": True, "added_by": "GO2_TEACHERS"}
                 for e in sorted(settings.teachers)]
-        rows += [{"email": m["email"], "fixed": False,
-                  "added_by": m["added_by"], "created_at": m["created_at"]}
-                 for m in db.mentors(settings.db_path)
-                 if not settings.is_teacher(m["email"])]
+        for m in db.mentors(settings.db_path):
+            if settings.is_teacher(m["email"]):
+                continue
+            row = {"email": m["email"], "fixed": False,
+                   "added_by": m["added_by"], "created_at": m["created_at"]}
+            if who and who.email:
+                subject, body = mail.mentor_invite(settings, m["email"], who.name)
+                row["draft"] = mail.gmail_draft(sender=who.email, to=m["email"],
+                                                subject=subject, body=body)
+                row["mailto"] = mail.mailto(to=m["email"], subject=subject, body=body)
+            rows.append(row)
         return rows
 
-    def roster() -> list[dict]:
+    def roster(who=None) -> list[dict]:
         rows = []
         for student in db.all_students(settings.db_path):
             lab = labs.info(student.slug)
             state = student.lab_state
             if lab and state not in ("provisioning", "failed"):
                 state = "running" if lab.running else "stopped"
-            rows.append({
+            row = {
                 "student": student,
                 "lab": lab,
                 "state": state,
                 "links": labs.links(student.slug) if lab and lab.running else [],
-            })
+                "invited": db.drafted_for(settings.db_path, student.slug, "invite"),
+            }
+            if student.email and who and who.email:
+                subject, body = mail.student_invite(settings, student, who.name)
+                row["draft"] = mail.gmail_draft(sender=who.email, to=student.email,
+                                                subject=subject, body=body)
+                row["mailto"] = mail.mailto(to=student.email, subject=subject, body=body)
+            rows.append(row)
         return rows
 
     # --------------------------------------------------------------- pages
@@ -421,7 +436,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                             headers={"Content-Disposition":
                                      f'attachment; filename="{h["name"]}"'})
         student = db.get(settings.db_path, h["slug"])
-        return page(request, "handin.html", h=h, student=student, body=_preview(path))
+        who = teacher_only(request)
+        comments = db.comments_for_handin(settings.db_path, handin_id)
+        for c in comments:
+            if student and student.email and who and who.email:
+                subject, body = mail.feedback(settings, student, h["name"], c["body"],
+                                              who.name)
+                c["draft"] = mail.gmail_draft(sender=who.email, to=student.email,
+                                              subject=subject, body=body)
+                c["mailto"] = mail.mailto(to=student.email, subject=subject, body=body)
+        return page(request, "handin.html", h=h, student=student, body=_preview(path),
+                    comments=comments)
 
     @app.post("/console/device/{slug}/{device_id}/revoke")
     def console_revoke(request: Request, slug: str, device_id: int,
@@ -462,8 +487,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return page(request, "student_login.html",
                         error="That student is no longer on the list.")
         lab = labs.info(student.slug)
-        return page(request, "student.html", student=student, lab=lab,
-                    links=labs.links(student.slug) if lab and lab.running else [])
+        feedback = db.comments_for_student(settings.db_path, student.slug)
+        response = page(request, "student.html", student=student, lab=lab,
+                        links=labs.links(student.slug) if lab and lab.running else [],
+                        feedback=feedback,
+                        handins=db.handins_for(settings.db_path, student.slug))
+        # Shown, so no longer "new" on their laptop's strip.
+        db.mark_comments_seen(settings.db_path, student.slug)
+        return response
 
     @app.post("/student/code")
     def student_code(request: Request, code: str = Form(""),
@@ -490,8 +521,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         error=f"{who.email or who.name} is not a mentor on "
                               "this server. Another mentor can add you from "
                               "the console.")
-        return page(request, "console.html", rows=roster(),
-                    mentors=mentor_rows())
+        return page(request, "console.html", rows=roster(who),
+                    mentors=mentor_rows(who))
 
     @app.post("/console/add")
     async def console_add(request: Request, name: str = Form(""),
@@ -694,6 +725,83 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return Response(path.read_bytes(), media_type="application/octet-stream",
                         headers={"Content-Disposition":
                                  f'attachment; filename="{path.name}"'})
+
+    # ------------------------------------------------- email drafts
+
+    @app.post("/console/drafted")
+    def console_drafted(request: Request, kind: str = Form(""), slug: str = Form(""),
+                        to_addr: str = Form(""), subject: str = Form(""),
+                        csrf: str = Form("")):
+        """A mentor opened a draft. Recorded, so "did I invite Ada?" has an answer.
+
+        It records intent, not delivery: the console cannot know whether the
+        mentor pressed Send in their own Gmail, and does not pretend to.
+        """
+        who = teacher_only(request)
+        if who and _check_csrf(request, csrf) and kind in (
+                "invite", "mentor-invite", "announcement", "feedback"):
+            db.log_mail(settings.db_path, to_addr=to_addr[:300], subject=subject[:200],
+                        kind=kind, slug=slug or None, sent_by=who.email or who.name)
+        return JSONResponse({"ok": True})
+
+    @app.post("/console/announce", response_class=HTMLResponse)
+    def console_announce(request: Request, subject: str = Form(""),
+                         message: str = Form(""), csrf: str = Form("")):
+        """Write one announcement for the class, BCC'd, from the mentor's Gmail."""
+        who = teacher_only(request)
+        if not who or not _check_csrf(request, csrf):
+            return RedirectResponse("/console", status_code=303)
+        students = db.all_students(settings.db_path)
+        reach = [s.email for s in students if s.email]
+        missed = [s.display for s in students if not s.email]
+        error = None
+        if not subject.strip() or not message.strip():
+            error = "An announcement needs a subject and a message."
+        elif not reach:
+            error = "Nobody on the roster has an email address yet."
+        draft = mailto_link = None
+        if not error:
+            subj, body = mail.announcement(settings, subject, message, who.name)
+            # To the mentor, BCC the class: nobody sees anyone else's address,
+            # and the mentor's own copy is the record that it went.
+            draft = mail.gmail_draft(sender=who.email, to=who.email, subject=subj,
+                                     body=body, bcc=reach)
+            mailto_link = mail.mailto(to=who.email, subject=subj, body=body, bcc=reach)
+        return page(request, "announce.html", error=error, draft=draft,
+                    mailto=mailto_link, reach=len(reach), missed=missed,
+                    subject=subject, message=message)
+
+    # ------------------------------------------------- comments
+
+    @app.post("/console/handin/{handin_id}/comment")
+    def console_comment(request: Request, handin_id: int, body: str = Form(""),
+                        csrf: str = Form("")):
+        who = teacher_only(request)
+        if not who or not _check_csrf(request, csrf):
+            return RedirectResponse("/console", status_code=303)
+        h = db.handin(settings.db_path, handin_id)
+        if h:
+            try:
+                db.add_comment(settings.db_path, handin_id=handin_id, slug=h["slug"],
+                               author=who.name or who.email, body=body)
+            except ValueError:
+                pass
+        return RedirectResponse(f"/console/handin/{handin_id}", status_code=303)
+
+    @app.get("/api/comments")
+    def api_comments(request: Request):
+        """For a signed-in laptop's strip: is there feedback it hasn't seen?"""
+        device = bearer(request)
+        if not device:
+            return JSONResponse({"error": "not connected"}, status_code=401)
+        items = db.comments_for_student(settings.db_path, device["slug"])
+        unseen = [c for c in items if not c["seen_at"]]
+        return JSONResponse({
+            "unseen": len(unseen),
+            "latest": ({"handin": unseen[0]["handin_name"], "at": unseen[0]["created_at"]}
+                       if unseen else None),
+            "page": f"{settings.base_url.rstrip('/')}/student",
+        })
 
     @app.post("/console/mentors/add")
     def console_add_mentor(request: Request, email: str = Form(""),
