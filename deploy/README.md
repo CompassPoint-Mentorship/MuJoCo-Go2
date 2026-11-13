@@ -41,24 +41,30 @@ comparing it with the student's file says whether they have *touched* it.
 
 | Their file | What happens |
 |---|---|
-| missing | copied in |
-| identical to the seed — never edited | replaced |
-| edited, or from before the seed existed | **left alone**; the new version lands beside it as `<name>.updated-<date>-<time>.ipynb` |
+| missing | copied in, **read-only** |
+| identical to the seed — never edited | replaced in place |
+| edited, or from before the lock existed | **left alone**; the new version lands beside it as `<name>.new.ipynb`, and every later release replaces that |
 
-Every update gets a name nothing is using, which is what makes this safe to
-run repeatedly. A single fixed `.updated` name failed silently twice over: a
-student who had run a cell in that copy owned it, so the next fix had nowhere
-to go and was dropped, and replacing a file in place is invisible anyway —
-**JupyterLab does not reload a notebook that is already open**, so a student
-with the tab open sees yesterday's lesson with no sign that anything
-happened. A dated name always lands, sorts newest-last beside their own file,
-and appears in the file browser, which is the only signal they will notice.
-Copies they never opened are removed as newer ones supersede them, so the
-folder holds one.
+Everything is handed over read-only (mode 0444), and that is the whole trick.
+A student duplicates the example — right-click → **Duplicate** — and works in
+the copy, whose name we never touch; the original stays pristine, so a fix
+replaces it instead of adding a file. Cells still run in a read-only
+notebook; Jupyter only refuses to save it, with a "read-only" marker in the
+toolbar.
 
-Nothing restarts — the work dir is a bind mount — but a tab that was already
-open still shows what it loaded. Tell students to **open the new file**
-rather than reload: their old tab is a different file now.
+This replaced a dated name per release. Dating it always landed and was
+visible in the file browser, but a term of fixes became a folder of
+`01_hello_dog.updated-...` files that nobody could tell apart — which is the
+failure this version exists to fix. Dated copies nobody opened are removed on
+the next sync; the ones a student worked in are theirs and stay. A dated name
+is still the fallback for a student who unlocks the spare copy and works in
+that one, because dropping their update would be worse.
+
+What read-only does not fix: **JupyterLab does not reload a notebook that is
+already open**. Nothing restarts — the work dir is a bind mount — but a tab
+opened before the sync still shows what it loaded. Tell students to close the
+example and open it again after an update; the notebook says so at the top
+too.
 
 The link is `http://<host>:<port>/lab?token=<token>` — the token *is* the
 login, so treat the link as a password and send it to that student only.

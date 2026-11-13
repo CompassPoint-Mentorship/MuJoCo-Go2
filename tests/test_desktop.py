@@ -9,6 +9,7 @@ stare at a spinner for a minute.
 from __future__ import annotations
 
 import json
+import shutil
 import socket
 import subprocess
 import sys
@@ -17,6 +18,17 @@ import time
 import pytest
 
 from go2 import course, desktop
+
+
+def _unlock(path):
+    """Stand in for a student who got write access to a handed-out file.
+
+    They have to go out of their way for this -- JupyterLab will not do it --
+    but a work dir seeded before the lock existed is in the same state, so
+    the rules have to cope either way.
+    """
+    path.chmod(0o644)
+    return path
 
 
 def test_the_bundled_course_ships_with_the_package():
@@ -37,18 +49,46 @@ def test_seed_work_dir_never_overwrites_student_work(tmp_path):
     work = tmp_path / "work"
     course.sync(work, course.BUNDLED)
     mine = work / "01_hello_dog.ipynb"
-    mine.write_text("my own edits")
+    _unlock(mine)                       # a student who went around the lock,
+    mine.write_text("my own edits")     # or a copy handed out before there was one
 
     notes = course.sync(work, course.BUNDLED)   # e.g. they launch again tomorrow
 
     assert mine.read_text() == "my own edits"
     # ...and the fixed version arrives beside it rather than not at all,
-    # under a dated name so it is visible in the file browser.
-    delivered = sorted(work.glob("01_hello_dog.updated-*.ipynb"))
-    assert len(delivered) == 1, delivered
-    assert delivered[0].read_bytes() == (
+    # under the one name reserved for it.
+    spare = work / "01_hello_dog.new.ipynb"
+    assert spare.read_bytes() == (
         course.units_dir(course.BUNDLED) / "01_hello_dog.ipynb").read_bytes()
     assert any("kept your" in n for n in notes)
+
+
+def test_the_material_is_handed_over_read_only(tmp_path):
+    """A file the student cannot save over is a file we can keep updating.
+
+    This is what stops the folder filling with dated copies: the example
+    stays pristine, so every release replaces it in place. Duplicate (which
+    Jupyter does by saving a fresh file) gives them a writable one to work in.
+    """
+    work = tmp_path / "work"
+    course.sync(work, course.BUNDLED)
+
+    for name in ("01_hello_dog.ipynb", "02_walk_a_square.py"):
+        mode = (work / name).stat().st_mode & 0o777
+        assert mode == 0o444, f"{name} is {oct(mode)}, so a student can save over it"
+    # The seed is ours to rewrite every time; locking it would stop sync dead.
+    assert (work / course.SEED / "01_hello_dog.ipynb").stat().st_mode & 0o200
+
+
+def test_an_older_unlocked_copy_is_locked_on_the_next_sync(tmp_path):
+    """Work dirs seeded before the lock existed catch up without a fuss."""
+    work = tmp_path / "work"
+    course.sync(work, course.BUNDLED)
+    unlocked = work / "01_hello_dog.ipynb"
+    _unlock(unlocked)
+
+    assert course.sync(work, course.BUNDLED) == []   # nothing to say about it
+    assert unlocked.stat().st_mode & 0o777 == 0o444
 
 
 def test_seed_work_dir_updates_a_file_the_student_never_touched(tmp_path):
@@ -60,12 +100,14 @@ def test_seed_work_dir_updates_a_file_the_student_never_touched(tmp_path):
     # Pretend the course material changed under us.
     seeded = work / course.SEED / "01_hello_dog.ipynb"
     stale = b"the old version"
+    _unlock(dst)
     dst.write_bytes(stale)
     seeded.write_bytes(stale)
 
     notes = course.sync(work, course.BUNDLED)
 
     assert dst.read_bytes() == (course.units_dir(course.BUNDLED) / "01_hello_dog.ipynb").read_bytes()
+    assert not list(work.glob("01_hello_dog.new*.ipynb"))
     assert not list(work.glob("01_hello_dog.updated*.ipynb"))
     assert any("updated" in n for n in notes)
 
@@ -92,53 +134,96 @@ def test_seed_work_dir_is_quiet_when_nothing_changed(tmp_path):
     assert course.sync(work, course.BUNDLED) == []      # second time: silence
 
 
-def test_an_update_still_arrives_once_the_updated_copy_is_in_use(tmp_path):
-    """The failure this naming exists to prevent.
+def test_a_term_of_releases_does_not_fill_the_folder(tmp_path):
+    """The complaint this design answers: one file per fix is a mess.
 
-    With one fixed .updated name, a student who ran a cell in that copy owned
-    it, and the NEXT fix had nowhere to go -- so sync quietly delivered
-    nothing, to exactly the students who were furthest ahead.
+    A student who owns their own copy still gets every update, and it keeps
+    arriving in the same place, because that place is read-only too.
     """
     work = tmp_path / "work"
     units = course.units_dir(course.BUNDLED)
     course.sync(work, course.BUNDLED)
+    _unlock(work / "01_hello_dog.ipynb")
     (work / "01_hello_dog.ipynb").write_text("my own edits")
-    course.sync(work, course.BUNDLED)
 
-    # The student starts working in the copy we left them.
-    theirs = sorted(work.glob("01_hello_dog.updated-*.ipynb"))[0]
-    theirs.write_text("my work, in the new one")
-
-    # Now the course changes again.
-    seeded = work / course.SEED / "01_hello_dog.ipynb"
-    seeded.write_bytes(b"what we handed over last time")
-    notes = course.sync(work, course.BUNDLED)
-
-    assert theirs.read_text() == "my work, in the new one", "it ate their work"
-    fresh = [p for p in work.glob("01_hello_dog.updated-*.ipynb") if p != theirs]
-    assert fresh, "the update was dropped"
-    assert fresh[0].read_bytes() == (units / "01_hello_dog.ipynb").read_bytes()
-    assert any("the new one is" in n for n in notes)
-
-
-def test_update_copies_nobody_touched_are_tidied_away(tmp_path):
-    """Otherwise a term's worth of fixes becomes a term's worth of files."""
-    work = tmp_path / "work"
-    units = course.units_dir(course.BUNDLED)
-    course.sync(work, course.BUNDLED)
-    (work / "01_hello_dog.ipynb").write_text("my own edits")
-    course.sync(work, course.BUNDLED)
-    first = sorted(work.glob("01_hello_dog.updated-*.ipynb"))
-    assert len(first) == 1
-
-    # Two more fixes land, and the student opens neither.
-    for _ in range(2):
+    for _ in range(5):          # a term of fixes
         (work / course.SEED / "01_hello_dog.ipynb").write_bytes(b"older")
         course.sync(work, course.BUNDLED)
 
-    left = sorted(work.glob("01_hello_dog.updated-*.ipynb"))
-    assert len(left) == 1, f"clutter: {[p.name for p in left]}"
-    assert left[0].read_bytes() == (units / "01_hello_dog.ipynb").read_bytes()
+    beside = sorted(p.name for p in work.glob("01_hello_dog.*.ipynb"))
+    assert beside == ["01_hello_dog.new.ipynb"], f"clutter: {beside}"
+    assert (work / "01_hello_dog.new.ipynb").read_bytes() == (
+        units / "01_hello_dog.ipynb").read_bytes()
+
+
+def test_an_update_still_arrives_once_the_spare_copy_is_in_use(tmp_path):
+    """The failure the dated names existed to prevent, and still prevent.
+
+    A student who unlocks the spare and works in it owns it, so the next fix
+    has nowhere to go. Rather than drop it -- which hit exactly the students
+    who were furthest along -- it falls back to a dated name.
+    """
+    work = tmp_path / "work"
+    units = course.units_dir(course.BUNDLED)
+    course.sync(work, course.BUNDLED)
+    _unlock(work / "01_hello_dog.ipynb")
+    (work / "01_hello_dog.ipynb").write_text("my own edits")
+    course.sync(work, course.BUNDLED)
+
+    # The student unlocks the copy we left them and works in that too.
+    theirs = work / "01_hello_dog.new.ipynb"
+    _unlock(theirs)
+    theirs.write_text("my work, in the new one")
+
+    # Now the course changes again.
+    (work / course.SEED / "01_hello_dog.ipynb").write_bytes(b"what we handed over")
+    notes = course.sync(work, course.BUNDLED)
+
+    assert theirs.read_text() == "my work, in the new one", "it ate their work"
+    dated = sorted(work.glob("01_hello_dog.updated-*.ipynb"))
+    assert dated, "the update was dropped"
+    assert dated[0].read_bytes() == (units / "01_hello_dog.ipynb").read_bytes()
+    assert any("the new one is" in n for n in notes)
+
+
+def test_dated_copies_from_older_releases_are_tidied_away(tmp_path):
+    """Folders that already collected them empty themselves again."""
+    work = tmp_path / "work"
+    units = course.units_dir(course.BUNDLED)
+    course.sync(work, course.BUNDLED)
+    _unlock(work / "01_hello_dog.ipynb")
+    (work / "01_hello_dog.ipynb").write_text("my own edits")
+
+    # Two copies left by the old dated scheme, recorded in the seed as ours
+    # and never opened since.
+    for stamp in ("20261112-1854", "20261112-2032"):
+        old = work / f"01_hello_dog.updated-{stamp}.ipynb"
+        shutil.copy2(units / "01_hello_dog.ipynb", old)
+        shutil.copy2(old, work / course.SEED / old.name)
+
+    notes = course.sync(work, course.BUNDLED)
+
+    assert not list(work.glob("01_hello_dog.updated-*.ipynb"))
+    assert (work / "01_hello_dog.new.ipynb").is_file()
+    assert any("removed 2 earlier copies" in n for n in notes)
+
+
+def test_a_dated_copy_the_student_worked_in_is_left_alone(tmp_path):
+    """Tidying is for our files only -- theirs are never candidates."""
+    work = tmp_path / "work"
+    units = course.units_dir(course.BUNDLED)
+    course.sync(work, course.BUNDLED)
+    _unlock(work / "01_hello_dog.ipynb")
+    (work / "01_hello_dog.ipynb").write_text("my own edits")
+
+    old = work / "01_hello_dog.updated-20261112-1854.ipynb"
+    shutil.copy2(units / "01_hello_dog.ipynb", old)
+    shutil.copy2(old, work / course.SEED / old.name)
+    old.write_text("hours of my homework")      # they worked in it
+
+    course.sync(work, course.BUNDLED)
+
+    assert old.read_text() == "hours of my homework"
 
 
 def test_free_port_is_actually_free():
