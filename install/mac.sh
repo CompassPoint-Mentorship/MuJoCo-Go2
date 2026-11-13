@@ -23,7 +23,9 @@ REPO="CompassPoint-Mentorship/MuJoCo-Go2"
 BRANCH="${GO2_BRANCH:-main}"
 # GO2_TARBALL lets a mentor point this at a local copy or an internal mirror,
 # which is also how the installer gets tested before the code is pushed.
-TARBALL="${GO2_TARBALL:-https://github.com/${REPO}/archive/refs/heads/${BRANCH}.tar.gz}"
+# Left empty, the release check below resolves the branch to a commit and
+# pins this to that commit's tarball.
+TARBALL="${GO2_TARBALL:-}"
 PREFIX="${GO2_PREFIX:-$HOME/.go2}"
 VENV="$PREFIX/venv"
 PYVER="${GO2_PYTHON:-3.12}"
@@ -90,6 +92,43 @@ elif [ "$OS" = "Darwin" ] && [ "$ARCH" = "x86_64" ]; then
 fi
 
 say "Go2 simulator installer  ($OS $ARCH, into $PREFIX)"
+
+# --------------------------------------------------------------- which release
+# "Which version am I about to install?" is the first question worth asking and
+# the most annoying one to answer afterwards, so it is answered HERE: before
+# anything is downloaded, before anything is changed, and before the student is
+# asked to stop a running lab.
+#
+# Resolving the branch to a commit also pins the download. A branch tarball
+# comes from a CDN that can be minutes behind a push (raw and codeload both
+# cache for about five), so asking for main.tar.gz right after a fix can
+# quietly install the code WITHOUT it -- an install that looks perfect and
+# fixes nothing. A commit tarball is immutable, so what is printed here is
+# exactly what lands.
+RELEASE_SHA=""
+if [ -n "$TARBALL" ]; then
+  say "Release: the copy you pointed me at -- $TARBALL"
+else
+  COMMIT_JSON="$(curl -fsSL --connect-timeout 5 --max-time 15 \
+                   "https://api.github.com/repos/${REPO}/commits/${BRANCH}" 2>/dev/null || true)"
+  RELEASE_SHA="$(printf '%s\n' "$COMMIT_JSON" \
+                 | grep -m1 -o '"sha": *"[0-9a-f]\{40\}"' \
+                 | grep -o '[0-9a-f]\{40\}' || true)"
+  RELEASE_DATE="$(printf '%s\n' "$COMMIT_JSON" \
+                  | grep -m1 -o '"date": *"[^"]*"' \
+                  | sed 's/.*"\([^"]*\)"$/\1/' || true)"
+  if [ -n "$RELEASE_SHA" ]; then
+    TARBALL="https://github.com/${REPO}/archive/${RELEASE_SHA}.tar.gz"
+    say "Release: ${REPO} ${BRANCH} @ ${RELEASE_SHA:0:7}${RELEASE_DATE:+   (${RELEASE_DATE})}"
+  else
+    # Offline, rate-limited, or GitHub is having a day. The install can still
+    # go ahead from the branch tarball; it just cannot promise it is current.
+    TARBALL="https://github.com/${REPO}/archive/refs/heads/${BRANCH}.tar.gz"
+    warn "Could not ask GitHub which commit ${BRANCH} is at, so this installs the
+    latest ${BRANCH} tarball a CDN will give us. That is usually the same
+    thing, but it can be a few minutes behind a fix you are waiting for."
+  fi
+fi
 
 # ------------------------------------------------- is the lab running now?
 # Upgrading underneath a running lab replaces files the running processes are
@@ -260,7 +299,12 @@ cat > "$SITE/_build.py" <<BUILDPY
 BUILD = "$STAMP"
 SOURCE = "$TARBALL"
 SOURCE_SHA = "$SRC_SHA"
+COMMIT = "$RELEASE_SHA"
 BUILDPY
+# The same release line the install opened with, now as a fact rather than a
+# plan -- and with the version of the package that actually landed.
+VERSION="$("$VENV/bin/python" -I -c 'import importlib.metadata as m; print(m.version("go2"))' 2>/dev/null || true)"
+say "Installed go2 ${VERSION:-(version unknown)}${RELEASE_SHA:+  ${BRANCH} @ ${RELEASE_SHA:0:7}}"
 say "Build $STAMP${SRC_SHA:+ ($SRC_SHA)}"
 
 # ------------------------------------------------------------------ launcher

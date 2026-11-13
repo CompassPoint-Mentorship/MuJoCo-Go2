@@ -456,8 +456,31 @@ def test_build_id_reads_the_stamp_the_installer_writes(tmp_path, monkeypatch):
     build = importlib.import_module("go2.build")
     assert build.build_info()["build"] == "20261112-192345Z"
     assert build.build_id() == "20261112-192345Z (abc123def456)"
-    # Sorts chronologically as a plain string, which is the point of the format.
-    assert "20261112-192345Z" < "20261113-010000Z"
+
+
+def test_build_id_names_the_commit_when_the_installer_resolved_one(tmp_path, monkeypatch):
+    """A commit is something a mentor can look up; a tarball hash is not."""
+    import importlib
+    import sys as _sys
+
+    pkg = tmp_path / "go2"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("")
+    (pkg / "build.py").write_text((desktop.PKG / "build.py").read_text())
+    (pkg / "_build.py").write_text(
+        'BUILD = "20261113-050000Z"\n'
+        'SOURCE = "https://github.com/o/r/archive/d58c968.tar.gz"\n'
+        'SOURCE_SHA = "abc123def456"\n'
+        'COMMIT = "d58c968deadbeefcafe1234567890abcdef12345"\n'
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    for name in [n for n in _sys.modules if n == "go2" or n.startswith("go2.")]:
+        monkeypatch.delitem(_sys.modules, name, raising=False)
+
+    build = importlib.import_module("go2.build")
+    assert build.build_info()["commit"].startswith("d58c968")
+    assert build.build_id() == "20261113-050000Z (d58c968)"
+
 
 
 def test_the_service_does_not_import_from_the_current_directory():

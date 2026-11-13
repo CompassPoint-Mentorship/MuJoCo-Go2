@@ -69,6 +69,23 @@ or, if they would rather not touch a terminal, downloads
 the installer and a note about Gatekeeper, not the simulator, so it never goes
 stale.
 
+The install opens by naming the release it is about to put on the machine,
+before it downloads or changes anything:
+
+```
+==> Go2 simulator installer  (Darwin arm64, into /Users/alice/.go2)
+==> Release: CompassPoint-Mentorship/MuJoCo-Go2 main @ d58c968   (2026-11-13T05:07:02Z)
+```
+
+That line is also a pin. Asking GitHub which commit `main` is at, then
+downloading *that commit's* tarball, is what makes the printed version the
+installed version: a branch tarball is served from a CDN that caches for
+about five minutes, so an install run right after a fix can otherwise pull
+the code without it and look perfectly successful. The commit is recorded in
+the build stamp too, so `go2-lab --version` can still answer "which code is
+this?" weeks later. When GitHub cannot be reached the install carries on from
+the branch tarball and says that it could not check.
+
 Then they open **Go2 Lab** from their Applications folder. A browser tab
 opens with the notebook on the left and the dog on the right — the same page
 the server serves.

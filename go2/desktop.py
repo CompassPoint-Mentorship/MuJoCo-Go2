@@ -564,6 +564,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.version:
         info = build_info()
         print(f"go2-lab build {info['build']}")
+        if info["commit"]:
+            print(f"  commit  {info['commit']}")
         if info["sha"]:
             print(f"  source  {info['sha']}  from {info['source']}")
         try:
