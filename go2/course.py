@@ -25,7 +25,23 @@ of these rules would drift apart within a term:
     missing          copy it in
     same as seed     never edited, so replace it
     anything else    leave it; the new version lands beside it as
-                     <name>.updated.<ext>
+                     <name>.updated-<date>-<time>.<ext>
+
+The timestamp is not decoration. A fixed name has two failure modes, and
+both of them lose work silently:
+
+  * once a student runs a cell in the .updated copy, that copy is theirs
+    too, and the next update has nowhere to go. The old code noticed and
+    skipped it -- so a fix stopped reaching exactly the students who were
+    furthest along.
+  * replacing a file in place is invisible. JupyterLab does not reload a
+    notebook that is already open, so a student with the tab open sees
+    yesterday's lesson and no sign that anything happened.
+
+A name nothing is using solves both: the update always lands somewhere, and
+it lands as a NEW file in the file browser, which is the only signal a
+student actually sees. Copies we delivered and nobody touched are tidied up
+as they are superseded, so the folder does not fill with them.
 
 `.go2-seed` holds a copy of exactly what was last handed over. Without it
 there is no way to tell an edited file from an untouched one, and the only
@@ -41,6 +57,7 @@ import os
 import pathlib
 import shutil
 import sys
+import time
 
 SEED = ".go2-seed"
 UNITS = "units"
@@ -166,18 +183,56 @@ def sync(work: pathlib.Path, pack: pathlib.Path | None = None,
                 shutil.copy2(src, kept)
             notes.append(f"updated {src.name} (you had not changed it)")
         else:
-            new = dst.with_name(f"{src.stem}.updated{src.suffix}")
-            if new.exists() and kept.exists() and not _same(new, kept):
-                # They have started working in the copy we left last time, so
-                # it is theirs now and gets the same protection.
-                notes.append(f"kept your {src.name} and your {new.name}")
-            elif not (new.exists() and _same(src, new)):
+            # Their copy differs from what we handed over, so it is theirs and
+            # it stays. The new version arrives under a name nothing is using.
+            handed_over = sorted(work.glob(f"{src.stem}.updated*{src.suffix}"))
+            if any(_same(src, old) for old in handed_over):
+                pass                      # already delivered, under some name
+            else:
+                fresh = _update_name(work, src)
+                superseded = _untouched_copies(handed_over, seed)
                 if not dry_run:
-                    shutil.copy2(src, new)
-                notes.append(f"kept your {src.name}; the new one is {new.name}")
+                    shutil.copy2(src, fresh)
+                    shutil.copy2(src, seed / fresh.name)
+                    for stale in superseded:
+                        stale.unlink()
+                        (seed / stale.name).unlink(missing_ok=True)
+                notes.append(f"kept your {src.name}; the new one is {fresh.name}")
+                if superseded:
+                    notes.append(
+                        f"  (removed {len(superseded)} earlier cop"
+                        f"{'y' if len(superseded) == 1 else 'ies'} "
+                        "you had not changed)")
             if not dry_run:
                 shutil.copy2(src, kept)
     return notes
+
+
+def _update_name(work: pathlib.Path, src: pathlib.Path) -> pathlib.Path:
+    """A name for the new copy that nothing in `work` is using.
+
+    Dated to the minute, so the newest one sorts last in the file browser and
+    a student can tell at a glance which is the one to open.
+    """
+    base = f"{src.stem}.updated-{time.strftime('%Y%m%d-%H%M')}"
+    candidate = work / f"{base}{src.suffix}"
+    n = 2
+    while candidate.exists():            # two fixes in the same minute
+        candidate = work / f"{base}-{n}{src.suffix}"
+        n += 1
+    return candidate
+
+
+def _untouched_copies(handed_over: list[pathlib.Path],
+                      seed: pathlib.Path) -> list[pathlib.Path]:
+    """Earlier update copies the student never changed.
+
+    Only ever files we wrote ourselves, identified by still matching the copy
+    kept in the seed. A file the student has edited never matches, so their
+    work is never a candidate for tidying.
+    """
+    return [p for p in handed_over
+            if (seed / p.name).is_file() and _same(seed / p.name, p)]
 
 
 # ---------------------------------------------------------------------------

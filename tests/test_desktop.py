@@ -42,10 +42,12 @@ def test_seed_work_dir_never_overwrites_student_work(tmp_path):
     notes = course.sync(work, course.BUNDLED)   # e.g. they launch again tomorrow
 
     assert mine.read_text() == "my own edits"
-    # ...and the fixed version arrives beside it rather than not at all.
-    new = work / "01_hello_dog.updated.ipynb"
-    assert new.exists()
-    assert new.read_bytes() == (course.units_dir(course.BUNDLED) / "01_hello_dog.ipynb").read_bytes()
+    # ...and the fixed version arrives beside it rather than not at all,
+    # under a dated name so it is visible in the file browser.
+    delivered = sorted(work.glob("01_hello_dog.updated-*.ipynb"))
+    assert len(delivered) == 1, delivered
+    assert delivered[0].read_bytes() == (
+        course.units_dir(course.BUNDLED) / "01_hello_dog.ipynb").read_bytes()
     assert any("kept your" in n for n in notes)
 
 
@@ -64,7 +66,7 @@ def test_seed_work_dir_updates_a_file_the_student_never_touched(tmp_path):
     notes = course.sync(work, course.BUNDLED)
 
     assert dst.read_bytes() == (course.units_dir(course.BUNDLED) / "01_hello_dog.ipynb").read_bytes()
-    assert not (work / "01_hello_dog.updated.ipynb").exists()
+    assert not list(work.glob("01_hello_dog.updated*.ipynb"))
     assert any("updated" in n for n in notes)
 
 
@@ -90,19 +92,53 @@ def test_seed_work_dir_is_quiet_when_nothing_changed(tmp_path):
     assert course.sync(work, course.BUNDLED) == []      # second time: silence
 
 
-def test_seed_work_dir_protects_the_updated_copy_once_it_is_used(tmp_path):
+def test_an_update_still_arrives_once_the_updated_copy_is_in_use(tmp_path):
+    """The failure this naming exists to prevent.
+
+    With one fixed .updated name, a student who ran a cell in that copy owned
+    it, and the NEXT fix had nowhere to go -- so sync quietly delivered
+    nothing, to exactly the students who were furthest ahead.
+    """
     work = tmp_path / "work"
+    units = course.units_dir(course.BUNDLED)
     course.sync(work, course.BUNDLED)
     (work / "01_hello_dog.ipynb").write_text("my own edits")
     course.sync(work, course.BUNDLED)
 
-    # The student starts working in the fixed copy we left them.
-    theirs = work / "01_hello_dog.updated.ipynb"
+    # The student starts working in the copy we left them.
+    theirs = sorted(work.glob("01_hello_dog.updated-*.ipynb"))[0]
     theirs.write_text("my work, in the new one")
+
+    # Now the course changes again.
+    seeded = work / course.SEED / "01_hello_dog.ipynb"
+    seeded.write_bytes(b"what we handed over last time")
     notes = course.sync(work, course.BUNDLED)
 
-    assert theirs.read_text() == "my work, in the new one"
-    assert any("and your" in n for n in notes)
+    assert theirs.read_text() == "my work, in the new one", "it ate their work"
+    fresh = [p for p in work.glob("01_hello_dog.updated-*.ipynb") if p != theirs]
+    assert fresh, "the update was dropped"
+    assert fresh[0].read_bytes() == (units / "01_hello_dog.ipynb").read_bytes()
+    assert any("the new one is" in n for n in notes)
+
+
+def test_update_copies_nobody_touched_are_tidied_away(tmp_path):
+    """Otherwise a term's worth of fixes becomes a term's worth of files."""
+    work = tmp_path / "work"
+    units = course.units_dir(course.BUNDLED)
+    course.sync(work, course.BUNDLED)
+    (work / "01_hello_dog.ipynb").write_text("my own edits")
+    course.sync(work, course.BUNDLED)
+    first = sorted(work.glob("01_hello_dog.updated-*.ipynb"))
+    assert len(first) == 1
+
+    # Two more fixes land, and the student opens neither.
+    for _ in range(2):
+        (work / course.SEED / "01_hello_dog.ipynb").write_bytes(b"older")
+        course.sync(work, course.BUNDLED)
+
+    left = sorted(work.glob("01_hello_dog.updated-*.ipynb"))
+    assert len(left) == 1, f"clutter: {[p.name for p in left]}"
+    assert left[0].read_bytes() == (units / "01_hello_dog.ipynb").read_bytes()
 
 
 def test_free_port_is_actually_free():

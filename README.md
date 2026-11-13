@@ -132,12 +132,22 @@ need a second install step, and a syllabus fix should not need a release.
 
 `go2-lab` applies the same rules as the server's `go2-student.sh sync`, every
 launch: a notebook the student has not touched is replaced, one they have
-edited is left alone with the new version beside it as `<name>.updated.ipynb`,
-and files they made themselves are never looked at. It says what it did:
+edited is left alone with the new version beside it under a dated name, and
+files they made themselves are never looked at. It says what it did:
 
 ```
-[go2] kept your 01_hello_dog.ipynb; the new one is 01_hello_dog.updated.ipynb
+[go2] kept your 01_hello_dog.ipynb; the new one is 01_hello_dog.updated-20261113-0102.ipynb
 ```
+
+The date in that name is load bearing. A single fixed `.updated` name breaks
+in two ways, both silent: once a student has run a cell in that copy it is
+theirs too, so the next fix has nowhere to go and is simply dropped — losing
+it for the students who are furthest ahead — and replacing a file in place is
+invisible anyway, because JupyterLab does not reload a notebook that is
+already open. A name nothing is using always has somewhere to land, and
+lands as a **new file in the file browser**, which is the only signal a
+student actually sees. Copies nobody opened are tidied up as they are
+superseded, so the folder holds one.
 
 The comparison is against `.go2-seed` in the work folder — a copy of exactly
 what was last handed over. Without it there is no way to tell an edited file
