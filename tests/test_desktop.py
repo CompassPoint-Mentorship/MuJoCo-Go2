@@ -499,3 +499,38 @@ def test_the_service_does_not_import_from_the_current_directory():
     )
     assert out.returncode == 0, out.stderr
     assert out.stdout.strip() != "/tmp"
+
+
+def test_the_lab_stylesheet_is_installed_where_jupyter_looks(tmp_path, monkeypatch):
+    """JupyterLab serves custom CSS from one path and nowhere else."""
+    from go2 import labcss
+
+    monkeypatch.setattr(labcss, "config_dir", lambda: tmp_path / ".jupyter")
+    written = labcss.install()
+
+    assert written == tmp_path / ".jupyter" / "custom" / "custom.css"
+    css = written.read_text()
+    assert '[data-jp-item-name="read-only-indicator"]' in css, (
+        "the badge is addressed by toolbar item name, which is the part "
+        "JupyterLab guarantees")
+    assert "#e8590c" in css
+
+
+def test_a_broken_stylesheet_path_never_stops_a_class(tmp_path, monkeypatch):
+    """A lab in Jupyter's own colours is a working lab."""
+    from go2 import labcss
+
+    blocked = tmp_path / "a-file"
+    blocked.write_text("not a directory")
+    monkeypatch.setattr(labcss, "config_dir", lambda: blocked / "nope")
+
+    assert labcss.install() is None
+
+
+def test_both_launchers_ask_jupyter_to_serve_the_stylesheet():
+    """Writing the file does nothing unless custom_css is switched on."""
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parents[1]
+    for path in (root / "go2" / "desktop.py", root / "deploy" / "entrypoint.sh"):
+        assert "--LabApp.custom_css=True" in path.read_text(), path

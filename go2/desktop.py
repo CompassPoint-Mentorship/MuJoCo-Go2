@@ -369,6 +369,10 @@ def run_lab(args: argparse.Namespace) -> int:
             # their own dog, so the viewer shows what the student's code does.
             "GO2_SIM_URL": f"http://127.0.0.1:{sim_port}",
         }
+        # The class's stylesheet, which is only served when asked for.
+        from . import labcss
+        labcss.install()
+
         lab_cmd = _jupyter_cmd() + [
             "--ip=127.0.0.1",
             f"--port={lab_port}",
@@ -376,6 +380,7 @@ def run_lab(args: argparse.Namespace) -> int:
             f"--ServerApp.root_dir={work}",
             f"--ServerApp.token={token}",
             "--ServerApp.password=",
+            "--LabApp.custom_css=True",
         ]
         lab = subprocess.Popen(lab_cmd, env=lab_env, start_new_session=True)
 

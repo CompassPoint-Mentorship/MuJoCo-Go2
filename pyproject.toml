@@ -38,6 +38,7 @@ include = ["go2*"]
 [tool.setuptools.package-data]
 go2 = [
     "assets/*.xml",
+    "assets/*.css",
     "assets/assets/*",
     "assets/LICENSE",
     "assets/UPSTREAM_README.md",

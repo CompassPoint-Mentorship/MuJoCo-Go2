@@ -1,0 +1,56 @@
+/* Go2 Lab -- the class's own colour on JupyterLab's chrome.
+ *
+ * Loaded as JupyterLab's custom CSS (see go2.labcss), which the lab serves
+ * from {jupyter_config_dir}/custom/custom.css when LabApp.custom_css is on.
+ *
+ * There is exactly one thing worth restyling: the read-only badge. The whole
+ * course now hands the example out read-only and asks the student to work in
+ * a duplicate, so that badge is not an error message -- it is the lesson's
+ * first instruction, and JupyterLab's default blue makes it look like one
+ * more piece of furniture in a toolbar full of blue-grey furniture.
+ *
+ * California poppy, because the class is in California and because an orange
+ * that bright is not mistaken for anything else on the page.
+ */
+
+:root {
+  --go2-poppy: #f97316; /* the flower */
+  --go2-poppy-deep: #e8590c; /* dark enough for white text on top (4.2:1) */
+  --go2-poppy-pale: #fff4e6;
+}
+
+/* The toolbar badge: "notebook is read-only".
+ *
+ * Addressed by the toolbar item's name rather than by a class, because the
+ * name is the thing JupyterLab guarantees -- it is the string the document
+ * widget registers the item under (`toolbar.addItem("read-only-indicator")`),
+ * and it lands in the DOM as data-jp-item-name. The classes inside it are
+ * implementation detail and have changed between minor versions, so the
+ * declarations below are deliberately blunt about reaching them.
+ */
+[data-jp-item-name="read-only-indicator"],
+[data-jp-item-name="read-only-indicator"] * {
+  background-color: var(--go2-poppy-deep) !important;
+  color: #ffffff !important;
+  border-color: var(--go2-poppy-deep) !important;
+  font-weight: 600;
+}
+
+[data-jp-item-name="read-only-indicator"] {
+  border-radius: 4px;
+}
+
+/* The same colour where a notebook says it in prose, so the badge and the
+ * cell are visibly talking about the same thing.
+ */
+.jp-RenderedMarkdown .go2-poppy {
+  color: var(--go2-poppy-deep);
+}
+
+.jp-RenderedMarkdown .go2-poppy-chip {
+  background-color: var(--go2-poppy-pale);
+  color: var(--go2-poppy-deep);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 700;
+}

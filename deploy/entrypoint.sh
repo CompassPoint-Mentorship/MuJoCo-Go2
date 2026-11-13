@@ -73,9 +73,17 @@ else
   echo "no certificate at /etc/go2/tls -- serving HTTP; microphone recording will be blocked" >&2
 fi
 
+# The class's own stylesheet -- currently one rule, turning the read-only
+# badge from JupyterLab's blue into the orange the coursework talks about.
+# JupyterLab only serves it when custom_css is on, and only from the config
+# directory, so it is copied there on every start rather than baked into the
+# image: the package is what ships it.
+python -m go2.labcss >/dev/null 2>&1 || true
+
 exec jupyter lab \
   --ip=0.0.0.0 --port=8888 --no-browser \
   --ServerApp.root_dir=/home/student/work \
   --ServerApp.token="${JUPYTER_TOKEN:-}" \
   --ServerApp.password= \
+  --LabApp.custom_css=True \
   "${TLS_ARGS[@]}"
