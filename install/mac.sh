@@ -37,6 +37,8 @@ GO2_MUJOCO="${GO2_MUJOCO:-}"
 RELEASE_TZ="${GO2_TZ:-America/Los_Angeles}"
 
 say()  { printf '\033[1m==>\033[0m %s\n' "$*"; }
+warn() { printf '\033[33m!!\033[0m  %s\n' "$*" >&2; }
+die()  { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 
 # An ISO-8601 UTC timestamp, in local terms. GNU date and BSD date disagree
 # about every flag involved -- and `date -d` means something else entirely on
