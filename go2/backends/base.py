@@ -56,6 +56,14 @@ class Backend(ABC):
         speaker. Real robot: the Go2's own speaker, over its audio service.
         """
 
+    def backflip(self) -> None:
+        """One backwards somersault.
+
+        Not abstract: a backend that cannot flip should say so clearly rather
+        than every backend having to implement a trick.
+        """
+        raise NotImplementedError("this dog cannot do a backflip")
+
     @abstractmethod
     def reset(self) -> None:
         """Put the dog back where it started, stopped and standing."""

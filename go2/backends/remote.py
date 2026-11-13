@@ -79,6 +79,11 @@ class RemoteBackend(Backend):
     def reset(self) -> None:
         self._get("cmd", reset=1)
 
+    def backflip(self) -> None:
+        # The service runs the animation and only answers once it has landed,
+        # so this blocks for about as long as the flip takes.
+        self._get("cmd", backflip=1)
+
     def stand(self) -> None:
         self._get("cmd", stand=1)
 

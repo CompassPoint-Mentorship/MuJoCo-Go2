@@ -67,6 +67,7 @@ _PAGE = """<!doctype html>
     <button data-cmd="stop=1">stop</button>
     <button data-cmd="sit=1">sit</button>
     <button data-cmd="stand=1">stand</button>
+    <button data-cmd="backflip=1">backflip</button>
     <button data-cmd="reset=1">reset</button>
   </div>
   <div class="row">
@@ -482,6 +483,9 @@ def _handler(dog: Go2, frames: _Frames):
                     _audio_store(dog).play(q["say"][0])
                 except KeyError:
                     pass
+                return
+            if "backflip" in q:
+                dog.backflip()
                 return
             if "reset" in q:
                 dog.reset()

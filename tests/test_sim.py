@@ -6,6 +6,7 @@ Run headless and faster than realtime, so the suite finishes in seconds:
 
 import math
 import os
+import threading
 import time
 
 import numpy as np
@@ -274,6 +275,76 @@ def test_audio_store_drops_the_oldest_clips(dog):
     for i in range(MAX_CLIPS + 5):
         dog.say(f"clip {i}".encode())
     assert len(dog._backend.audio.ids()) == MAX_CLIPS
+
+
+# ---------------------------------------------------------------------------
+# Tricks
+# ---------------------------------------------------------------------------
+
+def test_backflip_is_one_full_turn_that_starts_and_ends_standing():
+    """The animation itself, without a simulator: a loop, not a displacement."""
+    from go2 import gait
+
+    start_pitch, start_lift, start_angles = gait.backflip_pose(0.0)
+    end_pitch, end_lift, end_angles = gait.backflip_pose(1.0)
+
+    assert start_pitch == 0.0
+    assert end_pitch == pytest.approx(-2 * math.pi)     # exactly one turn
+    assert start_lift == 0.0 and end_lift == pytest.approx(0.0)
+    assert start_angles == gait.stand_vector()
+    assert end_angles == pytest.approx(gait.stand_vector())
+
+    # Highest in the middle, and tucked there too.
+    mid_pitch, mid_lift, mid_angles = gait.backflip_pose(0.5)
+    assert mid_lift == pytest.approx(gait.FLIP_HEIGHT)
+    assert mid_angles[1] > start_angles[1]              # knees pulled in
+
+
+def test_backflip_turns_the_dog_over_and_puts_it_back(dog):
+    """Mid-flight the dog is upside down; afterwards it is standing again."""
+    dog.stand()
+    dog.move(vx=0.4)
+    dog.wait(0.5)
+    dog.stop()
+    before = dog.pose()
+
+    seen = []
+
+    def watch():
+        for _ in range(80):
+            qpos = dog._backend._data.qpos
+            w, x, y, _z = qpos[3], qpos[4], qpos[5], qpos[6]
+            seen.append((float(qpos[2]), 1.0 - 2.0 * (x * x + y * y)))
+            time.sleep(0.02)
+
+    watcher = threading.Thread(target=watch)
+    watcher.start()
+    dog.backflip()
+    watcher.join()
+
+    heights = [h for h, _ in seen]
+    upright = [u for _, u in seen]
+    assert max(heights) > 0.5, "the dog never left the ground"
+    assert min(upright) < -0.9, "the dog never actually went over"
+
+    after = dog.pose()
+    assert after.x == pytest.approx(before.x), "a flip must not travel"
+    assert after.y == pytest.approx(before.y)
+    assert upright[-1] == pytest.approx(1.0, abs=1e-3), "it did not land upright"
+
+    # And it is a working dog afterwards, not stuck in a trick.
+    dog.move(vx=0.3)
+    dog.wait(0.4)
+    dog.stop()
+    assert dog.pose().x > after.x
+
+
+def test_a_backend_that_cannot_flip_says_so():
+    """Backends inherit a clear refusal rather than an AttributeError."""
+    from go2.backends.base import Backend
+
+    with pytest.raises(NotImplementedError, match="backflip"):
+        Backend.backflip(object())
 
 
 def test_the_panel_plays_the_first_clip_recorded_into_it():

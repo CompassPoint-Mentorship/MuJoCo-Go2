@@ -194,6 +194,23 @@ class Go2:
         """Shorthand for move(wz=rate). Positive is counter-clockwise."""
         return self.move(wz=rate)
 
+    def backflip(self) -> "Go2":
+        """One backwards somersault. Waits until the dog has landed.
+
+            dog.backflip()
+
+        In simulation this is an **animation**, like the walking: the body is
+        turned through a full circle and the legs tuck. The dog cannot
+        under-rotate or land badly, because nothing here is really jumping.
+
+        On the real robot it is the firmware's own trick (sport API 2043),
+        and it is the most dangerous thing in this API: 15 kg of robot leaves
+        the ground and comes back down. It needs clear space, a flat floor
+        and somebody holding the remote.
+        """
+        self._backend.backflip()
+        return self
+
     def stop(self) -> "Go2":
         """Stop moving. The dog stays standing."""
         self._backend.stop()

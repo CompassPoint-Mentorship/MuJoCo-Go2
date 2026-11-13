@@ -91,3 +91,56 @@ def body_bob(t: float, speed: float) -> float:
     if amplitude <= 1e-6:
         return 0.0
     return 0.012 * amplitude * math.sin(4.0 * math.pi * STRIDE_HZ * amplitude * t)
+
+
+# ---------------------------------------------------------------------------
+# Tricks
+# ---------------------------------------------------------------------------
+#
+# A backflip here is an ANIMATION, exactly like the trot above: the body is
+# rotated through a full circle and the legs tuck, because the simulator has
+# no walking controller and no jumping one either. Nothing is launched by
+# pushing against the floor, so the dog cannot under-rotate, land badly or
+# hurt itself.
+#
+# On the real robot this is firmware -- sport API id 2043 -- and it is a
+# genuinely dangerous move: 15 kg of robot leaves the ground. Keeping both
+# facts in one place is the point of this comment.
+
+FLIP_SECONDS = 1.2       # how long the whole move takes
+FLIP_HEIGHT = 0.35       # metres gained at the top of the arc
+TUCK = (0.0, 1.70, -2.75)    # knees pulled in while airborne
+
+
+def _smoothstep(x: float) -> float:
+    """Ease in and out, so the rotation starts and ends at rest."""
+    x = _clamp(x, 0.0, 1.0)
+    return x * x * (3.0 - 2.0 * x)
+
+
+def backflip_pose(phase: float) -> tuple[float, float, list[float]]:
+    """Body pitch, height gain and 12 joint angles, at `phase` in [0, 1].
+
+    Phase 0 and phase 1 are both the standing pose, so the move begins and
+    ends where the dog already was -- it is a loop, not a displacement.
+    """
+    phase = _clamp(phase, 0.0, 1.0)
+
+    # One full turn backwards about the body's lateral axis. Negative is
+    # nose-up, which is what makes it a BACK flip rather than a front one.
+    pitch = -2.0 * math.pi * _smoothstep(phase)
+
+    # An arc: nothing at the ends, highest in the middle.
+    airborne = math.sin(math.pi * phase)
+    lift = FLIP_HEIGHT * airborne
+
+    # Tuck the legs in while off the ground, and put them back down for the
+    # landing. Same blend as the arc, so the dog is most tucked at the top.
+    angles: list[float] = []
+    for _leg in LEGS:
+        angles.extend((
+            STAND[0],
+            STAND[1] + (TUCK[1] - STAND[1]) * airborne,
+            STAND[2] + (TUCK[2] - STAND[2]) * airborne,
+        ))
+    return pitch, lift, angles

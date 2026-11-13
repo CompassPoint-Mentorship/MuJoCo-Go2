@@ -91,6 +91,7 @@ class SimBackend(Backend):
         self._reset_requested = False
         self._cmd = (0.0, 0.0, 0.0)
         self._mode = "stand"
+        self._trick_started = 0.0
         self._x = 0.0
         self._y = 0.0
         self._yaw = 0.0
@@ -175,15 +176,20 @@ class SimBackend(Backend):
 
     # ------------------------------------------------------------- simulation
 
-    def _write_pose(self, x: float, y: float, yaw: float, z: float) -> None:
+    def _write_pose(self, x: float, y: float, yaw: float, z: float,
+                    pitch: float = 0.0) -> None:
         self._data.qpos[0] = x
         self._data.qpos[1] = y
         self._data.qpos[2] = z
-        half = yaw / 2.0
-        self._data.qpos[3] = math.cos(half)  # w
-        self._data.qpos[4] = 0.0
-        self._data.qpos[5] = 0.0
-        self._data.qpos[6] = math.sin(half)  # z
+        # Yaw about world z, then pitch about the body's own lateral axis:
+        # q = q_yaw * q_pitch. Walking only ever needs the yaw half; pitch is
+        # what lets a trick turn the dog over.
+        cz, sz = math.cos(yaw / 2.0), math.sin(yaw / 2.0)
+        cp, sp = math.cos(pitch / 2.0), math.sin(pitch / 2.0)
+        self._data.qpos[3] = cz * cp       # w
+        self._data.qpos[4] = -sz * sp      # x
+        self._data.qpos[5] = cz * sp       # y
+        self._data.qpos[6] = sz * cp       # z
         self._data.qvel[:] = 0.0
 
     def _write_joints(self, angles) -> None:
@@ -215,6 +221,24 @@ class SimBackend(Backend):
             self._tick_locked(mujoco, dt, vx, vy, wz, mode, x, y, yaw, clock)
 
     def _tick_locked(self, mujoco, dt, vx, vy, wz, mode, x, y, yaw, clock) -> None:
+        if mode == "trick":
+            phase = (clock - self._trick_started) / gait.FLIP_SECONDS
+            if phase >= 1.0:
+                # Landed. Back to standing exactly where it took off.
+                self._mode = "stand"
+                self._write_pose(x, y, yaw, _STAND_HEIGHT)
+                self._write_joints(gait.stand_vector())
+                mujoco.mj_forward(self._model, self._data)
+                return
+            pitch, lift, angles = gait.backflip_pose(phase)
+            # x and y are held: the dog turns over, it does not travel. No
+            # obstacle check either -- it is in the air, and a flip that
+            # refused to finish would leave the dog upside down.
+            self._write_pose(x, y, yaw, _STAND_HEIGHT + lift, pitch=pitch)
+            self._write_joints(angles)
+            mujoco.mj_forward(self._model, self._data)
+            return
+
         if mode == "sit":
             self._write_pose(x, y, yaw, _STAND_HEIGHT * 0.55)
             self._write_joints(gait.sit_vector())
@@ -308,6 +332,24 @@ class SimBackend(Backend):
         with self._lock:
             self._mode = "stand"
             self._cmd = (float(vx), float(vy), float(wz))
+
+    def backflip(self) -> None:
+        """Animate a backflip, and wait for it to land.
+
+        Blocking, unlike move(): a trick is a thing that finishes, and the
+        next line of a student's notebook should run after it, not through
+        the middle of it.
+        """
+        with self._lock:
+            self._cmd = (0.0, 0.0, 0.0)
+            self._mode = "trick"
+            self._trick_started = self._clock
+        deadline = time.monotonic() + gait.FLIP_SECONDS + 2.0
+        while time.monotonic() < deadline:
+            time.sleep(_SIM_DT)
+            with self._lock:
+                if self._mode != "trick":
+                    return
 
     def stop(self) -> None:
         with self._lock:

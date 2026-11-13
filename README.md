@@ -258,6 +258,7 @@ limit**. One viewer costs a few percent of a core on top of the simulator.
 | `dog.reset()` | Back to the start: origin, stopped, standing |
 | `dog.stand()` | Stand still on all four legs |
 | `dog.sit()` | Lower the body to the ground |
+| `dog.backflip()` | One backwards somersault, then stand. Waits until it lands |
 | `dog.move(vx, vy, wz)` | Walk at a body-frame velocity until told otherwise |
 | `dog.forward(speed)` / `dog.turn(rate)` | Shorthands for `move` |
 | `dog.stop()` | Stop moving, stay standing |
@@ -288,6 +289,9 @@ What that means, stated plainly:
 
 - The dog **cannot fall over, trip or slip.**
 - Commanded velocity is tracked **exactly** — there is no tracking error.
+- `backflip()` is an animation of the same kind, so it cannot under-rotate or
+  land badly. On the real robot it is the firmware's own trick (sport API
+  2043) and genuinely dangerous.
 - Obstacles **do** block it: MuJoCo collision detection runs every tick, and
   motion into an obstacle is refused (turning still works, so you can rotate
   away from a wall rather than getting stuck).
