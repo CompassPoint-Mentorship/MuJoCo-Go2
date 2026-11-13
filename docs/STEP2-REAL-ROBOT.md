@@ -90,6 +90,7 @@ from `src/protocol/topics.ts`, tested against Go2 firmware v1.1.11.
 | `velocity()` | last commanded | — | — | mirror the simulator: report what was asked for |
 | `camera()` | WebRTC video track | — | — | `head` only; `chase` must raise a clear error |
 | `say()` | `rt/api/audiohub/request` | upload + play | — | the Pro has a speaker; no EDU hardware needed |
+| `hush()` | `rt/api/audiohub/request` | stop playback | — | a robot playing music nobody can stop is worse than one that never played it |
 | `reset()` | — | — | — | **has no hardware meaning** (§6) |
 | `close()` | `1003` StopMove, then tear down | — | — | **never** send `1001` Damp: it drops the dog |
 

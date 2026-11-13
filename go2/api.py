@@ -132,9 +132,9 @@ class Go2:
         stored and nothing is audible. On the real robot it goes to the Go2's
         own speaker.
 
-        To record your own voice, use the "record your voice" button in the
-        viewer panel: the browser captures the microphone, uploads it, and the
-        dog says it straight back.
+        To record your own voice, call dog.listen(seconds) -- or press the
+        "record your voice" button in the viewer panel. Either way the browser
+        captures the microphone and the dog says it straight back.
         """
         data, guessed = _read_audio(audio)
         return self._backend.say(data, content_type or guessed)
@@ -154,6 +154,20 @@ class Go2:
         the microphone (it needs permission, and https or localhost).
         """
         return self._backend.listen(seconds)
+
+    def hush(self) -> "Go2":
+        """Stop the sound the dog is playing. The pair of say().
+
+            dog.say('dog_song.mp3')
+            dog.wait(5)
+            dog.hush()               # enough music
+
+        The clip is not forgotten -- say_again() plays it again from the
+        start. In simulation this tells the watching browser to go quiet, so
+        a dog nobody is watching was already silent.
+        """
+        self._backend.hush()
+        return self
 
     def say_again(self) -> str | None:
         """Say the most recent clip again. Returns its id, or None if silent.

@@ -67,6 +67,9 @@ class RemoteBackend(Backend):
             self._get("cmd", say=clip)
         return clip
 
+    def hush(self) -> None:
+        self._get("cmd", hush=1)
+
     def say(self, data: bytes, content_type: str = "audio/webm") -> str:
         req = urllib.request.Request(
             f"{self.url}/audio", data=data, method="POST",

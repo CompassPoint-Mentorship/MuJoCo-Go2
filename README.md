@@ -265,6 +265,8 @@ limit**. One viewer costs a few percent of a core on top of the simulator.
 | Call | Does |
 |---|---|
 | `dog.say(audio)` | Play a sound from the dog (file, bytes or file object) |
+| `dog.say_again()` | Play the last clip once more |
+| `dog.hush()` | Stop the sound that is playing. The clip is kept |
 | `dog.listen(seconds)` | Record from the watching browser's microphone; returns the clip id |
 | `dog.reset()` | Back to the start: origin, stopped, standing |
 | `dog.stand()` | Stand still on all four legs |

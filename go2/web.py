@@ -187,7 +187,7 @@ const playBtn = document.getElementById('play');
 // the `if (a.clip)` branch -- but a panel opened before anything has been
 // recorded has no clip, so the baseline was never taken and the guard ate the
 // NEXT clip instead: every student's first recording, played to nobody.
-let lastSeq = null, lastClip = null, lastListen = null;
+let lastSeq = null, lastClip = null, lastListen = null, lastHush = null;
 
 // Browsers refuse to play audio on a page nobody has clicked yet, so a clip
 // sent from a notebook can arrive before the student has touched this panel
@@ -212,6 +212,16 @@ setInterval(async () => {
     else if (a.listen_seq !== lastListen) {
       lastListen = a.listen_seq;
       startRecording(a.listen_seconds);
+    }
+    // dog.hush() stops the sound here, because here is where it is playing.
+    // Same baseline rule again: arriving at a page mid-tune is not a reason
+    // to stop it.
+    if (lastHush === null) { lastHush = a.hush_seq; }
+    else if (a.hush_seq !== lastHush) {
+      lastHush = a.hush_seq;
+      speaker.pause();
+      speaker.currentTime = 0;
+      recState.textContent = 'quiet';
     }
     if (lastSeq === null) { lastSeq = a.seq; return; }   // baseline, clip or not
     if (a.seq !== lastSeq) {
@@ -461,7 +471,8 @@ def _handler(dog: Go2, frames: _Frames):
                 clip = "null" if st["clip"] is None else '"' + st["clip"] + '"'
                 body = (f'{{"clip":{clip},"seq":{st["seq"]},"count":{st["count"]},'
                         f'"listen_seq":{st["listen_seq"]},'
-                        f'"listen_seconds":{st["listen_seconds"]}}}').encode()
+                        f'"listen_seconds":{st["listen_seconds"]},'
+                        f'"hush_seq":{st["hush_seq"]}}}').encode()
                 self._send(body, "application/json")
             elif url.path.startswith("/audio/"):
                 clip = _audio_store(dog).get(url.path[len("/audio/"):])
@@ -520,6 +531,9 @@ def _handler(dog: Go2, frames: _Frames):
                     _audio_store(dog).play(q["say"][0])
                 except KeyError:
                     pass
+                return
+            if "hush" in q:
+                dog.hush()
                 return
             if "backflip" in q:
                 dog.backflip()

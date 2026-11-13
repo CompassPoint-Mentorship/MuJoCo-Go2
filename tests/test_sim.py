@@ -429,3 +429,54 @@ def test_a_backend_without_ears_says_so():
 
     with pytest.raises(NotImplementedError, match="listen"):
         Backend.listen(object())
+
+
+def test_hush_asks_the_panel_for_silence(dog):
+    """dog.hush() bumps a sequence the page polls; the clip itself survives.
+
+    Sound plays in the browser, so stopping it is a request, not a local
+    call -- the same shape as listen(), in the other direction.
+    """
+    store = dog._backend.audio
+    clip = dog.say(b"RIFFfake", content_type="audio/wav")
+    before = store.state()["hush_seq"]
+
+    dog.hush()
+
+    assert store.state()["hush_seq"] == before + 1
+    assert store.get(clip) is not None, "hush() must not discard the clip"
+    assert dog.say_again() == clip, "the clip should still be replayable"
+
+
+def test_hush_reaches_the_panel_over_http(dog):
+    """/cmd?hush=1 is what the remote backend sends, and /audio/state carries it."""
+    import json
+    import socket
+    import urllib.request
+
+    from go2.web import serve_background
+
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    server, frames = serve_background(dog, host="127.0.0.1", port=port, fps=2)
+    try:
+        base = f"http://127.0.0.1:{port}"
+        with urllib.request.urlopen(f"{base}/audio/state") as r:
+            before = json.loads(r.read().decode())["hush_seq"]
+        with urllib.request.urlopen(f"{base}/cmd?hush=1") as r:
+            assert r.status == 200
+        with urllib.request.urlopen(f"{base}/audio/state") as r:
+            after = json.loads(r.read().decode())["hush_seq"]
+        assert after == before + 1
+    finally:
+        frames.stop()
+        server.shutdown()
+        server.server_close()
+
+
+def test_a_backend_that_cannot_be_silenced_says_so():
+    from go2.backends.base import Backend
+
+    with pytest.raises(NotImplementedError, match="stop a sound"):
+        Backend.hush(object())

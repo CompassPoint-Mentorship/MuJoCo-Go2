@@ -33,6 +33,10 @@ class AudioStore:
         # on its next poll, and wait for the clip to come back.
         self._listen_seq = 0
         self._listen_seconds = 0.0
+        # Same trick in the other direction: bumping this tells the viewer to
+        # stop whatever it is playing. Sound lives in the browser, so silence
+        # has to be asked for there too.
+        self._hush_seq = 0
 
     def add(self, data: bytes, content_type: str = "audio/webm") -> str:
         if not data:
@@ -77,6 +81,15 @@ class AudioStore:
             self._seq += 1
             return clip
 
+    def hush(self) -> None:
+        """Stop the clip the dog is saying, if any.
+
+        Nothing is forgotten -- the clip stays in the store and say_again()
+        will play it from the top. This only silences the viewer.
+        """
+        with self._lock:
+            self._hush_seq += 1
+
     def ask_to_record(self, seconds: float) -> int:
         """Ask whoever is watching to record `seconds` of microphone.
 
@@ -98,7 +111,8 @@ class AudioStore:
             return {"clip": self._playing, "seq": self._seq,
                     "count": len(self._order),
                     "listen_seq": self._listen_seq,
-                    "listen_seconds": self._listen_seconds}
+                    "listen_seconds": self._listen_seconds,
+                    "hush_seq": self._hush_seq}
 
     def ids(self) -> list[str]:
         with self._lock:

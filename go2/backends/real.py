@@ -55,6 +55,11 @@ class RealBackend(Backend):
         # drives this over WebRTC on rt/api/audiohub/request, and the Go2
         # Pro has a speaker, so this needs no EDU hardware.
         raise NotImplementedError(_MESSAGE)
+    def hush(self) -> None:
+        # Step 2: the audiohub service has its own stop; until then this is
+        # the one audio call with a real-world consequence worth having --
+        # a robot playing music nobody can turn off is a bad demo.
+        raise NotImplementedError(_MESSAGE)
     def listen(self, seconds: float = 3.0) -> str | None:
         # Step 2: the Go2 has microphones of its own, so unlike the simulator
         # this records on the robot rather than in the browser.

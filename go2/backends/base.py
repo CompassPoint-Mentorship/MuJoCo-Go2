@@ -56,6 +56,14 @@ class Backend(ABC):
         speaker. Real robot: the Go2's own speaker, over its audio service.
         """
 
+    def hush(self) -> None:
+        """Stop the clip currently playing. The clip itself is kept.
+
+        Not abstract for the same reason as listen(): a backend with no way
+        to interrupt a sound should say so rather than pretend it worked.
+        """
+        raise NotImplementedError("this dog cannot stop a sound once it starts")
+
     def listen(self, seconds: float = 3.0) -> str | None:
         """Record from a microphone and keep the clip. Returns its id.
 

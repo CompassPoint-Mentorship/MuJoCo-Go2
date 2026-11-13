@@ -303,6 +303,9 @@ class SimBackend(Backend):
     def say_again(self) -> str | None:
         return self.audio.replay()
 
+    def hush(self) -> None:
+        self.audio.hush()
+
     def listen(self, seconds: float = 3.0) -> str | None:
         """Ask the watching browser to record, and wait for the clip.
 
