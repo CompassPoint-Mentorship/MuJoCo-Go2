@@ -22,8 +22,15 @@ camera, make it talk. The same code runs on the real dog.
 [[unit]]
 id    = "01-hello-dog"
 title = "Hello, dog"
-goal  = "Connect to the dog, move it, read its pose."
-files = ["01_hello_dog.ipynb", "01_hello_dog.py"]
+goal  = "Connect to the dog, move it, read its pose, make it talk and flip."
+# dog_song.mp3 is a 20-second mono excerpt of "Space Good Fellow" by Komiku,
+# released CC0 (public domain, no attribution required) via the Free Music
+# Archive, taken from Wikimedia Commons:
+#   https://commons.wikimedia.org/wiki/File:Komiku_-_26_-_Space_Good_Fellow.ogg
+#   https://creativecommons.org/publicdomain/zero/1.0/
+# It is here so a student has something to play on day one without finding a
+# sound file first, and so dog.say() can be demonstrated with no microphone.
+files = ["01_hello_dog.ipynb", "01_hello_dog.py", "dog_song.mp3"]
 
 [[unit]]
 id    = "02-walk-a-square"
