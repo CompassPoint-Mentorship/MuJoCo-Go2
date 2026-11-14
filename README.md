@@ -19,6 +19,12 @@ image = dog.camera()       # (480, 640, 3) uint8
 
 Students write their code once. Moving to the real dog changes one argument.
 
+
+> **Documentation:** [`docs/README.md`](docs/README.md) indexes everything —
+> what the classroom platform is ([`docs/PLATFORM.md`](docs/PLATFORM.md)), how
+> to run it ([`docs/OPERATIONS.md`](docs/OPERATIONS.md)), and instructions for
+> agents ([`docs/agents/`](docs/agents/)).
+
 ## Three ways to use it
 
 **Hosted (recommended for a class)** — the student installs nothing. They open

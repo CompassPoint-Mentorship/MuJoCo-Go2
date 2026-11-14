@@ -85,7 +85,7 @@ gateway walked the dog to x = 0.400. `GO2_HUB_PUBLIC=1` is set. The steps below
 are how it was done, for the next deployment.
 
 1. **Gateway:** add the `/labs/` location from
-   `classroom/NGINX-REQUIREMENTS.md`, section 5 (WebSockets, long timeouts,
+   `docs/gateway/NGINX-REQUIREMENTS.md`, section 5 (WebSockets, long timeouts,
    no buffering).
 2. **Check** from outside: `https://robo-dog.cpmentorship.org/labs/hub/api`
    answers with the version.
