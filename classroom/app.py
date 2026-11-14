@@ -34,7 +34,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from fastapi import File, UploadFile
 
 from . import auth, db
-from . import mail
+from . import inbox, mail
 from .course import CourseError, Pack, inside, safe_name
 from .labs import LabError, Labs
 from .settings import Settings
@@ -113,9 +113,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # adding a whole class at once should not start thirty of them.
     pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="provision")
 
+    import threading
+
+    stop_inbox = threading.Event()
+
+    def watch_inbox():
+        """Look for replies every few minutes while the app runs.
+
+        Only when mail is set up, and never faster than every minute: a
+        mailbox is a shared resource the organisation also reads by hand.
+        """
+        while not stop_inbox.wait(max(settings.inbox_every, 60)):
+            if settings.mail_configured:
+                try:
+                    inbox.check(settings)
+                except Exception:  # noqa: BLE001 - a bad pass must not end the loop
+                    pass
+
     @contextlib.asynccontextmanager
     async def lifespan(_app: FastAPI):
+        if settings.mail_configured and settings.inbox_every > 0:
+            threading.Thread(target=watch_inbox, name="inbox", daemon=True).start()
         yield
+        stop_inbox.set()
         # Don't wait: a docker build in flight will finish on its own, and a
         # restart must not hang on it.
         pool.shutdown(wait=False, cancel_futures=True)
@@ -505,7 +525,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                               "this server. Another mentor can add you from "
                               "the console.")
         return page(request, "console.html", rows=roster(who),
-                    mentors=mentor_rows(who))
+                    mentors=mentor_rows(who),
+                    new_replies=db.unseen_replies(settings.db_path))
 
     @app.post("/console/add")
     async def console_add(request: Request, name: str = Form(""),
@@ -690,7 +711,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return page(request, "work.html", student=student, files=listing,
                     work=work, shown=shown.name if shown else None, body=body,
                     handins=db.handins_for(settings.db_path, slug) if student else [],
-                    devices=db.devices_for(settings.db_path, slug) if student else [])
+                    devices=db.devices_for(settings.db_path, slug) if student else [],
+                    replies=db.replies(settings.db_path, slug) if student else [])
 
     @app.get("/console/work/{slug}/download")
     def console_download(request: Request, slug: str, name: str = ""):
@@ -812,6 +834,64 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             note += f" Not reached \u2014 no email on file: {', '.join(missed)}."
         _flash(request, True, note)
         return RedirectResponse("/console/outbox", status_code=303)
+
+    @app.get("/console/replies", response_class=HTMLResponse)
+    def console_replies(request: Request):
+        if not teacher_only(request):
+            return RedirectResponse("/console", status_code=303)
+        rows = db.replies(settings.db_path)
+        students = {s.slug: s for s in db.all_students(settings.db_path)}
+        response = page(request, "replies.html", rows=rows, students=students,
+                        checked=db.get_meta(settings.db_path, "imap_checked_at"))
+        db.mark_replies_seen(settings.db_path)
+        return response
+
+    @app.post("/console/replies/check")
+    def console_replies_check(request: Request, csrf: str = Form("")):
+        who = teacher_only(request)
+        if not who or not _check_csrf(request, csrf):
+            return RedirectResponse("/console", status_code=303)
+        result = inbox.check(settings)
+        db.set_meta(settings.db_path, "imap_checked_at",
+                    __import__("time").strftime("%Y-%m-%d %H:%M UTC", __import__("time").gmtime()))
+        if result["error"]:
+            _flash(request, False, f"Could not check for replies: {result['error']}")
+        else:
+            n = result["stored"]
+            _flash(request, True, "No new replies." if not n else
+                   f"{n} new repl{'y' if n == 1 else 'ies'}.")
+        return RedirectResponse("/console/replies", status_code=303)
+
+    @app.post("/console/replies/{reply_id}/answer")
+    def console_reply_answer(request: Request, reply_id: int, body: str = Form(""),
+                             csrf: str = Form("")):
+        """Answer a reply, threaded into the student's conversation.
+
+        Always to the address the original email went to -- a roster address
+        -- never to whoever the reply happened to come from. If someone else
+        answered (a parent, a forward), the mentor is told and the answer
+        still goes only where the class already writes.
+        """
+        who = teacher_only(request)
+        if not who or not _check_csrf(request, csrf):
+            return RedirectResponse("/console", status_code=303)
+        r = db.reply(settings.db_path, reply_id)
+        if not r or not body.strip():
+            _flash(request, False, "Nothing to send.")
+            return RedirectResponse("/console/replies", status_code=303)
+        student = db.get(settings.db_path, r["slug"]) if r["slug"] else None
+        greeting = f"Hi {student.display},\n\n" if student else ""
+        subject = r["subject"] if r["subject"].lower().startswith("re:") \
+            else f"Re: {r['original_subject']}"
+        text = f"{greeting}{body.strip()}\n\n{who.name}\n"
+        try:
+            mail.send(settings, to_addr=r["original_to"], subject=subject, body=text,
+                      kind="reply", sent_by=who.email or who.name, slug=r["slug"],
+                      in_reply_to=r["message_id"])
+            _flash(request, True, f"Answer sent to {r['original_to']}.")
+        except mail.MailError as exc:
+            _flash(request, False, f"Not sent: {exc}")
+        return RedirectResponse("/console/replies", status_code=303)
 
     @app.get("/console/outbox", response_class=HTMLResponse)
     def console_outbox(request: Request):

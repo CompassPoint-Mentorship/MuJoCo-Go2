@@ -167,7 +167,9 @@ def _html(body: str) -> str:
             '</div></body></html>')
 
 
-def build(settings: Settings, to_addr: str, subject: str, body: str) -> EmailMessage:
+def build(settings: Settings, to_addr: str, subject: str, body: str,
+          in_reply_to: str | None = None) -> EmailMessage:
+    """One message. Its Message-ID is how a reply to it is recognised later."""
     to_addr = _clean(to_addr)
     if not to_addr:
         raise MailError("that is not one email address")
@@ -175,6 +177,10 @@ def build(settings: Settings, to_addr: str, subject: str, body: str) -> EmailMes
     msg["From"] = settings.mail_from
     msg["To"] = to_addr
     msg["Subject"] = subject
+    if in_reply_to:
+        # Threads the answer into the conversation the student already has.
+        msg["In-Reply-To"] = in_reply_to
+        msg["References"] = in_reply_to
     domain = parseaddr(settings.mail_from)[1].split("@")[-1] or None
     msg["Message-ID"] = make_msgid(domain=domain)
     msg.set_content(body)
@@ -230,11 +236,20 @@ def send_many(settings: Settings, messages: list[dict], *, sent_by: str) -> dict
     exactly who was not reached.
     """
     rows = []
-    for m in messages:
-        mail_id = db.log_mail(settings.db_path, to_addr=m["to_addr"], subject=m["subject"],
-                              kind=m["kind"], slug=m.get("slug"), sent_by=sent_by)
-        rows.append((mail_id, m))
     sent = failed = 0
+    for m in messages:
+        try:
+            msg = build(settings, m["to_addr"], m["subject"], m["body"])
+        except MailError as exc:
+            bad = db.log_mail(settings.db_path, to_addr=m["to_addr"], subject=m["subject"],
+                              kind=m["kind"], slug=m.get("slug"), sent_by=sent_by)
+            db.mark_mail(settings.db_path, bad, "failed", str(exc))
+            failed += 1
+            continue
+        mail_id = db.log_mail(settings.db_path, to_addr=m["to_addr"], subject=m["subject"],
+                              kind=m["kind"], slug=m.get("slug"), sent_by=sent_by,
+                              message_id=msg["Message-ID"])
+        rows.append((mail_id, msg))
     server = None
     try:
         server = _connect(settings)
@@ -244,13 +259,13 @@ def send_many(settings: Settings, messages: list[dict], *, sent_by: str) -> dict
         reason = str(exc) or exc.__class__.__name__
     else:
         reason = ""
-    for mail_id, m in rows:
+    for mail_id, msg in rows:
         if server is None:
             db.mark_mail(settings.db_path, mail_id, "failed", reason)
             failed += 1
             continue
         try:
-            server.send_message(build(settings, m["to_addr"], m["subject"], m["body"]))
+            server.send_message(msg)
             db.mark_mail(settings.db_path, mail_id, "sent")
             sent += 1
         except (MailError, smtplib.SMTPException, OSError) as exc:
@@ -265,7 +280,8 @@ def send_many(settings: Settings, messages: list[dict], *, sent_by: str) -> dict
 
 
 def send(settings: Settings, *, to_addr: str, subject: str, body: str,
-         kind: str, sent_by: str, slug: str | None = None) -> None:
+         kind: str, sent_by: str, slug: str | None = None,
+         in_reply_to: str | None = None) -> None:
     """Send one invitation now, and record what happened either way.
 
     Synchronous on purpose: one message takes a second or two, and the
@@ -273,9 +289,10 @@ def send(settings: Settings, *, to_addr: str, subject: str, body: str,
     page -- not a spinner, and not a guess.
     """
     check_room(settings, 1)
-    msg = build(settings, to_addr, subject, body)
+    msg = build(settings, to_addr, subject, body, in_reply_to=in_reply_to)
     mail_id = db.log_mail(settings.db_path, to_addr=to_addr, subject=subject,
-                          kind=kind, slug=slug, sent_by=sent_by)
+                          kind=kind, slug=slug, sent_by=sent_by,
+                          message_id=msg["Message-ID"])
     try:
         deliver(settings, msg)
     except MailError as exc:

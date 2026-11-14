@@ -239,6 +239,31 @@ exactly one address, so a stored value cannot add recipients or headers.
 When the mailbox is not set up, the buttons are replaced by a note. There is
 no fallback to anyone's personal mail.
 
+### Replies
+
+When a student (or anyone) replies to an email the site sent, the reply shows
+up on **Replies** in the console, and under *Emails from them* on that
+student's work page. A mentor can answer from there; the answer goes from
+the same mailbox, threaded into the student's conversation.
+
+The sending mailbox is also the organisation's, so the reader is narrow by
+construction (`classroom/inbox.py`):
+
+- **Only replies to the site's own email.** Every outgoing message's
+  Message-ID is in the outbox; a pass fetches only the header lines of new
+  mail and downloads a body only when `In-Reply-To`/`References` cites one of
+  those IDs. Nothing else is read past its headers or stored.
+- **Read-only.** The inbox is opened with EXAMINE and every fetch is
+  `BODY.PEEK`, so nothing is marked read, moved or deleted — people reading
+  the mailbox in Gmail see no change.
+- **Answers go only to the roster address.** If a reply came from someone else
+  (a parent, a forward), the console says so, and an answer still goes only to
+  the address the original went to.
+
+It runs every three minutes (`INBOX_EVERY`, seconds; 0 turns it off) and only
+once the site has sent something to reply to. Gmail must allow IMAP for the
+account, which Workspace admins can switch off.
+
 ### Setting up the mailbox
 
 The site sends through Google's SMTP server as `SMTP_USER`, with an **app

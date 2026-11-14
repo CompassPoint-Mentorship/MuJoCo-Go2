@@ -1276,3 +1276,150 @@ def test_a_student_cannot_leave_feedback(client):
     client.post(f"/console/handin/{hid}/comment",
                 data={"body": "A+ from me", "csrf": SESSION_CSRF})
     assert db.comments_for_handin(client.settings.db_path, hid) == []
+
+
+# ------------------------------------------- replies, read out of the mailbox
+
+class FakeIMAP:
+    """A mailbox: records every command, so a test can see what was read."""
+
+    def __init__(self, messages):
+        self.messages = messages            # uid -> raw bytes
+        self.commands = []
+        self.readonly = None
+
+    def select(self, box, readonly=False):
+        self.readonly = readonly
+        return "OK", [str(len(self.messages)).encode()]
+
+    def response(self, name):
+        return name, [b"42"]
+
+    def uid(self, command, *args):
+        self.commands.append((command, args))
+        if command == "SEARCH":
+            return "OK", [b" ".join(str(u).encode() for u in sorted(self.messages))]
+        if command == "FETCH":
+            uids, what = args
+            out = []
+            for u in str(uids).split(","):
+                raw = self.messages[int(u)]
+                if "HEADER.FIELDS" in what:
+                    head = raw.split(b"\r\n\r\n", 1)[0] + b"\r\n\r\n"
+                    out.append((f"{u} (UID {u} RFC822.SIZE {len(raw)} BODY[HEADER]".encode(), head))
+                else:
+                    out.append((f"{u} (UID {u} BODY[]".encode(), raw))
+            return "OK", out
+        raise AssertionError(f"the mailbox was asked to {command}")
+
+    def logout(self):
+        pass
+
+
+def _raw(message_id, *, frm, subject, body, in_reply_to=None):
+    headers = [f"Message-ID: {message_id}", f"From: {frm}", f"Subject: {subject}",
+               "Date: Fri, 14 Nov 2026 09:00:00 -0800"]
+    if in_reply_to:
+        headers += [f"In-Reply-To: {in_reply_to}", f"References: {in_reply_to}"]
+    return ("\r\n".join(headers + ["Content-Type: text/plain; charset=utf-8", "", body])).encode()
+
+
+def _sent_invite(mailing):
+    db.add(mailing.settings.db_path, slug="ada", display="Ada", email="ada@gmail.com",
+           created_by="t")
+    sign_in_as(mailing, kind="teacher", email=TEACHER, name="Ms Mentor")
+    mailing.post("/console/invite/ada", data={"csrf": SESSION_CSRF})
+    (row,) = db.outbox(mailing.settings.db_path)
+    assert row["message_id"], "an email without a Message-ID can never be replied to"
+    return row
+
+
+def test_only_replies_to_our_email_are_read_and_the_rest_never_past_headers(mailing):
+    from classroom import inbox
+
+    sent = _sent_invite(mailing)
+    box = FakeIMAP({
+        1: _raw("<a@x>", frm="bank@example.com", subject="Your statement",
+                body="PRIVATE BANK DETAILS"),
+        2: _raw("<b@x>", frm="Ada <ada@gmail.com>", subject="Re: Your Robo Dog class",
+                body="Thanks! I installed it.\n\nOn Fri, Nov 14, 2026 at 9:00 AM Robo Dog\n"
+                     "<tech@cpmentorship.org> wrote:\n> Hi Ada,\n> YOUR JOIN CODE",
+                in_reply_to=sent["message_id"]),
+        3: _raw("<c@x>", frm="board@cpmentorship.org", subject="Re: budget",
+                body="CONFIDENTIAL", in_reply_to="<someone-elses@thread>"),
+    })
+
+    result = inbox.check(mailing.settings, connect=lambda s: box)
+
+    assert result == {"looked_at": 3, "stored": 1, "error": ""}
+    assert box.readonly is True, "the mailbox must be opened read-only"
+    bodies = [a for c, a in box.commands if c == "FETCH" and "HEADER.FIELDS" not in a[1]]
+    assert bodies == [("2", "(BODY.PEEK[])")], "only the reply's body may be fetched"
+    assert all("PEEK" in a[1] for c, a in box.commands if c == "FETCH"), \
+        "a fetch without PEEK marks mail read in Gmail"
+
+    (r,) = db.replies(mailing.settings.db_path)
+    assert r["slug"] == "ada" and r["matched"] == 1
+    assert r["body"] == "Thanks! I installed it.", "the quoted original should be cut"
+    import sqlite3
+    dump = " ".join(str(v) for row in sqlite3.connect(mailing.settings.db_path)
+                    .execute("SELECT * FROM replies") for v in row)
+    assert "PRIVATE" not in dump and "CONFIDENTIAL" not in dump
+
+
+def test_the_same_reply_is_stored_once_and_the_next_pass_starts_after_it(mailing):
+    from classroom import inbox
+
+    sent = _sent_invite(mailing)
+    box = FakeIMAP({5: _raw("<r@x>", frm="ada@gmail.com", subject="Re: hi", body="ok",
+                            in_reply_to=sent["message_id"])})
+    inbox.check(mailing.settings, connect=lambda s: box)
+    inbox.check(mailing.settings, connect=lambda s: box)
+
+    assert len(db.replies(mailing.settings.db_path)) == 1
+    searches = [a for c, a in box.commands if c == "SEARCH"]
+    assert searches[-1] == (None, "UID 6:*"), "the second pass should only look at new mail"
+
+
+def test_a_reply_from_someone_else_is_flagged_and_answered_only_to_the_student(mailing):
+    from classroom import inbox
+
+    sent = _sent_invite(mailing)
+    box = FakeIMAP({7: _raw("<p@x>", frm="Parent <parent@example.com>",
+                            subject="Re: Your Robo Dog class", body="Is this safe?",
+                            in_reply_to=sent["message_id"])})
+    inbox.check(mailing.settings, connect=lambda s: box)
+    (r,) = db.replies(mailing.settings.db_path)
+    assert r["matched"] == 0
+    assert "not ada@gmail.com" in mailing.get("/console/replies").text
+
+    FakeSMTP.sent.clear()
+    mailing.post(f"/console/replies/{r['id']}/answer",
+                 data={"body": "Yes -- happy to talk.", "csrf": SESSION_CSRF})
+    (answer,) = FakeSMTP.sent
+    assert answer["To"] == "ada@gmail.com", "answers go only to the roster address"
+    assert answer["In-Reply-To"] == "<p@x>", "it should thread into the conversation"
+    assert answer["From"] == MAIL_FROM
+
+
+def test_students_never_see_replies(mailing):
+    from classroom import inbox
+
+    sent = _sent_invite(mailing)
+    box = FakeIMAP({9: _raw("<q@x>", frm="ada@gmail.com", subject="Re: x",
+                            body="secret note", in_reply_to=sent["message_id"])})
+    inbox.check(mailing.settings, connect=lambda s: box)
+    sign_in_as(mailing, kind="student", name="Ada", slug="ada")
+    assert mailing.get("/console/replies", follow_redirects=False).status_code == 303
+    assert "secret note" not in mailing.get("/student").text
+
+
+def test_quoted_originals_are_cut_in_the_common_shapes():
+    from classroom.inbox import strip_quoted
+
+    gmail = "Sounds good!\n\nOn Fri, Nov 14, 2026 at 9:00 AM Robo Dog - CompassPoint\nMentorship <tech@x.org> wrote:\n> old"
+    outlook = "Will do.\n\n-----Original Message-----\nFrom: tech@x.org\nold"
+    plain = "Got it\n> quoted line\n> another"
+    assert strip_quoted(gmail) == "Sounds good!"
+    assert strip_quoted(outlook) == "Will do."
+    assert strip_quoted(plain) == "Got it"

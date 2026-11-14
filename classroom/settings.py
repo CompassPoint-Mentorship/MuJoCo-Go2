@@ -80,6 +80,9 @@ class Settings:
     smtp_password: str = ""
     mail_from: str = ""
     mail_daily_limit: int = 300
+    # How often to look in the mailbox for replies to the site's email.
+    # 0 turns the background look off; "check now" in the console still works.
+    inbox_every: int = 180
 
 
     @property
@@ -130,4 +133,5 @@ class Settings:
             smtp_password=os.environ.get("SMTP_PASSWORD", "").replace(" ", ""),
             mail_from=os.environ.get("MAIL_FROM", ""),
             mail_daily_limit=int(os.environ.get("MAIL_DAILY_LIMIT", "300") or 300),
+            inbox_every=int(os.environ.get("INBOX_EVERY", "180") or 180),
         )

@@ -3,6 +3,12 @@
 {% block body %}
 
 <h1>Class <span class="accent">console</span></h1>
+{% if new_replies %}
+<div class="card highlight" style="margin-top:0">
+  📬 <a href="/console/replies"><strong>{{ new_replies }} new repl{{ 'y' if new_replies == 1 else 'ies' }}</strong></a>
+  to the class's email.
+</div>
+{% endif %}
 <p class="lede">
   {{ rows|length }} student{{ '' if rows|length == 1 else 's' }} on the list.
   <a href="/console/course">Course material and your own lab →</a>
@@ -115,7 +121,8 @@
 <p class="note">
   Every email is sent by this site from <code>{{ settings.mail_from }}</code>,
   signed with your name. Replies go to that mailbox.
-  <a href="/console/outbox">Outbox →</a>
+  <a href="/console/outbox">Outbox</a> ·
+  <a href="/console/replies">Replies{% if new_replies %} <strong>({{ new_replies }} new)</strong>{% endif %}</a>
   <form method="post" action="/console/mail/test" style="display:inline">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <button class="btn small ghost" type="submit">send a test to me</button>

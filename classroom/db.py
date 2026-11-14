@@ -117,6 +117,31 @@ CREATE TABLE IF NOT EXISTS outbox (
     error       TEXT NOT NULL DEFAULT ''
 );
 
+-- Replies to email this site sent, found by Message-ID in the mailbox. Only
+-- replies are ever stored: anything else in the mailbox is not read past its
+-- headers. `matched` says whether it came from the address we wrote to.
+CREATE TABLE IF NOT EXISTS replies (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id  TEXT NOT NULL UNIQUE,
+    outbox_id   INTEGER NOT NULL,
+    slug        TEXT,
+    from_addr   TEXT NOT NULL,
+    subject     TEXT NOT NULL DEFAULT '',
+    body        TEXT NOT NULL DEFAULT '',
+    attachments INTEGER NOT NULL DEFAULT 0,
+    matched     INTEGER NOT NULL DEFAULT 1,
+    received_at TEXT NOT NULL,
+    seen_at     TEXT
+);
+CREATE INDEX IF NOT EXISTS replies_slug ON replies (slug, received_at);
+
+-- Small bookkeeping that is not worth a table each: where the mailbox
+-- reader got to, so each pass reads only what arrived since.
+CREATE TABLE IF NOT EXISTS meta (
+    key         TEXT PRIMARY KEY,
+    value       TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS mentors (
     email       TEXT PRIMARY KEY,
     display     TEXT NOT NULL DEFAULT '',
@@ -168,6 +193,9 @@ def init(path: pathlib.Path) -> None:
         if "kind" not in columns:
             conn.execute("ALTER TABLE students ADD COLUMN kind TEXT NOT NULL"
                          " DEFAULT 'student'")
+        outbox_cols = {r["name"] for r in conn.execute("PRAGMA table_info(outbox)")}
+        if "message_id" not in outbox_cols:
+            conn.execute("ALTER TABLE outbox ADD COLUMN message_id TEXT")
         comment_cols = {r["name"] for r in conn.execute("PRAGMA table_info(comments)")}
         if "emailed" not in comment_cols:
             conn.execute("ALTER TABLE comments ADD COLUMN emailed TEXT NOT NULL"
@@ -476,14 +504,14 @@ def mark_comments_seen(path: pathlib.Path, slug: str) -> None:
 # ------------------------------------------------------------ outbox
 
 def log_mail(path: pathlib.Path, *, to_addr: str, subject: str, kind: str,
-             slug: str | None, sent_by: str) -> int:
+             slug: str | None, sent_by: str, message_id: str | None = None) -> int:
     with connect(path) as conn:
         # Status set explicitly: a database created by an earlier version has a
         # different column default, and CREATE TABLE IF NOT EXISTS never fixes it.
         cur = conn.execute(
             "INSERT INTO outbox (to_addr, subject, kind, slug, sent_by, created_at,"
-            " status) VALUES (?,?,?,?,?,?,'queued')",
-            (to_addr, subject, kind, slug, sent_by, _now()))
+            " status, message_id) VALUES (?,?,?,?,?,?,'queued',?)",
+            (to_addr, subject, kind, slug, sent_by, _now(), message_id))
         return cur.lastrowid
 
 
@@ -508,6 +536,84 @@ def mail_sent_today(path: pathlib.Path) -> int:
     with connect(path) as conn:
         return conn.execute("SELECT COUNT(*) FROM outbox WHERE created_at > ?"
                             " AND status = 'sent'", (since,)).fetchone()[0]
+
+
+# ------------------------------------------------------------ replies
+
+def sent_message_ids(path: pathlib.Path, days: int = 120) -> dict[str, dict]:
+    """Message-ID -> outbox row, for mail we sent recently. What a reply cites."""
+    import datetime as _d
+
+    since = (_d.datetime.now(_d.timezone.utc)
+             - _d.timedelta(days=days)).isoformat(timespec="seconds")
+    with connect(path) as conn:
+        rows = conn.execute("SELECT * FROM outbox WHERE message_id IS NOT NULL"
+                            " AND status = 'sent' AND created_at > ?", (since,)).fetchall()
+    return {r["message_id"]: dict(r) for r in rows}
+
+
+def has_reply(path: pathlib.Path, message_id: str) -> bool:
+    with connect(path) as conn:
+        return conn.execute("SELECT 1 FROM replies WHERE message_id = ?",
+                            (message_id,)).fetchone() is not None
+
+
+def add_reply(path: pathlib.Path, **fields) -> None:
+    keys = ("message_id", "outbox_id", "slug", "from_addr", "subject", "body",
+            "attachments", "matched", "received_at")
+    with connect(path) as conn:
+        conn.execute(f"INSERT OR IGNORE INTO replies ({', '.join(keys)})"
+                     f" VALUES ({', '.join('?' for _ in keys)})",
+                     tuple(fields[k] for k in keys))
+
+
+def replies(path: pathlib.Path, slug: str | None = None, limit: int = 200) -> list[dict]:
+    with connect(path) as conn:
+        if slug:
+            rows = conn.execute(
+                "SELECT r.*, o.subject AS original_subject, o.to_addr AS original_to"
+                " FROM replies r JOIN outbox o ON o.id = r.outbox_id"
+                " WHERE r.slug = ? ORDER BY r.received_at DESC LIMIT ?",
+                (slug, limit)).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT r.*, o.subject AS original_subject, o.to_addr AS original_to"
+                " FROM replies r JOIN outbox o ON o.id = r.outbox_id"
+                " ORDER BY r.received_at DESC LIMIT ?", (limit,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def reply(path: pathlib.Path, reply_id: int) -> dict | None:
+    with connect(path) as conn:
+        row = conn.execute(
+            "SELECT r.*, o.subject AS original_subject, o.to_addr AS original_to"
+            " FROM replies r JOIN outbox o ON o.id = r.outbox_id WHERE r.id = ?",
+            (reply_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def unseen_replies(path: pathlib.Path) -> int:
+    with connect(path) as conn:
+        return conn.execute("SELECT COUNT(*) FROM replies WHERE seen_at IS NULL"
+                            ).fetchone()[0]
+
+
+def mark_replies_seen(path: pathlib.Path) -> None:
+    with connect(path) as conn:
+        conn.execute("UPDATE replies SET seen_at = ? WHERE seen_at IS NULL", (_now(),))
+
+
+def get_meta(path: pathlib.Path, key: str, default: str = "") -> str:
+    with connect(path) as conn:
+        row = conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else default
+
+
+def set_meta(path: pathlib.Path, key: str, value: str) -> None:
+    with connect(path) as conn:
+        conn.execute("INSERT INTO meta (key, value) VALUES (?, ?)"
+                     " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                     (key, value))
 
 
 def drafted_for(path: pathlib.Path, slug: str, kind: str) -> dict | None:

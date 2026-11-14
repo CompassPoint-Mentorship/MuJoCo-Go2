@@ -28,6 +28,19 @@
 top of the simulator on their laptop, once the laptop is signed in.</p>
 {% endif %}
 
+<h2>Emails from them</h2>
+{% if replies %}
+{% for r in replies %}
+<div class="card">
+  <p class="note" style="margin-top:0">{{ r.from_addr }} · {{ r.received_at[:16] | replace('T', ' ') }} · Re: {{ r.original_subject }}</p>
+  <p style="white-space:pre-wrap; margin-bottom:0">{{ r.body }}</p>
+</div>
+{% endfor %}
+<p class="note"><a href="/console/replies">Answer on the replies page →</a></p>
+{% else %}
+<p class="note">No replies from them yet.</p>
+{% endif %}
+
 <h2>Connected laptops</h2>
 {% if devices %}
 <table>
