@@ -1616,3 +1616,22 @@ def test_an_old_per_port_lab_can_be_retired_from_the_console(hub_console, monkey
 
     hub_console.post("/console/oldlab/ada/retire", data={"csrf": SESSION_CSRF})
     assert ("down", "ada") in hub_console.calls
+
+
+def test_nothing_the_site_or_the_lab_serves_is_ignored_by_git():
+    """The live site once looked right because its logo was on the server's disk,
+    while .gitignore kept it out of every clone, every pack and every CI run.
+    A test that only checks the disk cannot see that; git can."""
+    import shutil
+    import subprocess
+
+    root = pathlib.Path(__file__).resolve().parents[1]
+    if not (root / ".git").exists() or not shutil.which("git"):
+        pytest.skip("not a git checkout")
+    served = [p for d in ("classroom/static", "classroom/templates", "go2/assets")
+              for p in (root / d).rglob("*") if p.is_file()]
+    ignored = subprocess.run(
+        ["git", "check-ignore", "--no-index", "--stdin"], cwd=root, text=True,
+        input="\n".join(str(p.relative_to(root)) for p in served),
+        capture_output=True).stdout.split()
+    assert ignored == [], f"served but ignored by git: {ignored}"

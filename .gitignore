@@ -22,6 +22,12 @@ dist/
 
 # The vendored Go2 model's own textures.
 !go2/assets/**/*.png
+# The site's own assets: CompassPoint's logo and icons. Ignoring images by
+# default once kept them out of git entirely -- the live site looked right
+# because the files were on its disk, and every clone and CI run lacked them.
+!classroom/static/**/*.png
+!classroom/static/**/*.webp
+!classroom/static/**/*.jpg
 
 # Documentation images are written, not generated, so they are tracked.
 !docs/**/*.png
