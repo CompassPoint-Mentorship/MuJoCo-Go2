@@ -19,7 +19,7 @@ made `go2-course sync` fail there with `No module named 'numpy'`.
 nobody asked for that are gone.
 """
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"
 __all__ = ["Go2", "Pose", "Velocity", "MAX_VX", "MAX_VY", "MAX_WZ"]
 
 _LAZY = {
