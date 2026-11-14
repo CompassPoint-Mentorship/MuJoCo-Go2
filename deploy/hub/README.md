@@ -78,6 +78,12 @@ Three things it caught, all fixed:
 
 ## Switching it on
 
+**Live since 14 November 2026.** The gateway routes `/labs/` here; a student
+signed in on the public site with a join code, pressed *Open my online lab*,
+had a lab in 6 seconds, and a cell run over `wss://` through Cloudflare and the
+gateway walked the dog to x = 0.400. `GO2_HUB_PUBLIC=1` is set. The steps below
+are how it was done, for the next deployment.
+
 1. **Gateway:** add the `/labs/` location from
    `classroom/NGINX-REQUIREMENTS.md`, section 5 (WebSockets, long timeouts,
    no buffering).
