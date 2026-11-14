@@ -35,6 +35,7 @@ from fastapi import File, UploadFile
 
 from . import auth, db
 from . import handoff, inbox, mail
+from .hub import Hub, HubError
 from .course import CourseError, Pack, inside, safe_name
 from .labs import LabError, Labs
 from .settings import Settings
@@ -105,6 +106,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     db.init(settings.db_path)
     labs = Labs(settings)
+    hub = Hub(settings)
     # The class's own pack, seeded from the bundled one the first time.
     pack = Pack(settings.course_pack,
                 bundled=settings.repo_root / "go2" / "course_pack").ensure()
@@ -221,6 +223,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     def roster(who=None) -> list[dict]:
         rows = []
+        online = hub.labs() if hub.enabled else None
         for student in db.all_students(settings.db_path):
             lab = labs.info(student.slug)
             state = student.lab_state
@@ -232,6 +235,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "state": state,
                 "links": labs.links(student.slug) if lab and lab.running else [],
                 "invited": db.drafted_for(settings.db_path, student.slug, "invite"),
+                # With the hub live: the online lab's state as JupyterHub sees
+                # it, and whether an old per-port lab is still running beside it.
+                "hub": (online or {}).get(student.slug,
+                                          {"state": "never opened", "active": ""})
+                       if hub.enabled else None,
+                "hub_unreachable": hub.enabled and online is None,
             }
             rows.append(row)
         return rows
@@ -578,7 +587,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                              email=email, created_by=who.email or who.name)
         except ValueError as exc:
             return page(request, "console.html", rows=roster(), error=str(exc))
-        if lab:
+        if lab and not hub.enabled:
+            # Only for the old per-port labs. With the hub, a student's lab
+            # starts the first time they open it -- nothing to start here.
             db.set_state(settings.db_path, student.slug, "provisioning",
                          "starting the lab...")
             app.state.pool.submit(provision, student.slug)
@@ -1010,6 +1021,44 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         db.remove_mentor(settings.db_path, email)
         return RedirectResponse("/console", status_code=303)
 
+    @app.post("/console/hub/{slug}/stop")
+    def console_hub_stop(request: Request, slug: str, csrf: str = Form("")):
+        """Stop a student's online lab -- a stuck one, or to free the GPU.
+
+        Their files stay; the lab starts again the next time they open it.
+        """
+        who = teacher_only(request)
+        if not who or not _check_csrf(request, csrf):
+            return RedirectResponse("/console", status_code=303)
+        if not db.get(settings.db_path, slug):
+            return RedirectResponse("/console", status_code=303)
+        try:
+            hub.stop(slug)
+            _flash(request, True, f"Stopping {slug}'s online lab. Their files stay; it "
+                                  "starts again when they next open it.")
+        except HubError as exc:
+            _flash(request, False, f"Could not stop it: {exc}")
+        return RedirectResponse("/console", status_code=303)
+
+    @app.post("/console/oldlab/{slug}/retire")
+    def console_retire_old_lab(request: Request, slug: str, csrf: str = Form("")):
+        """Stop a student's old per-port lab now that the hub serves them.
+
+        `go2-student.sh down`: the container stops and its port is freed; the
+        work folder is the same one the online lab uses, so nothing is lost.
+        """
+        who = teacher_only(request)
+        if not who or not _check_csrf(request, csrf):
+            return RedirectResponse("/console", status_code=303)
+        try:
+            labs.down(slug)
+            db.set_state(settings.db_path, slug, "stopped", "")
+            _flash(request, True, f"{slug}'s old lab is stopped. Their files are untouched, "
+                                  "and the online lab uses the same folder.")
+        except LabError as exc:
+            _flash(request, False, f"Could not stop the old lab: {exc}")
+        return RedirectResponse("/console", status_code=303)
+
     @app.get("/console/status.json")
     def console_status(request: Request):
         if not teacher_only(request):
@@ -1112,6 +1161,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except UnicodeDecodeError:
             return (f"({path.suffix.lstrip('.') or 'binary'} file, "
                     f"{path.stat().st_size // 1024} KB -- download it to open)")
+
+    @app.get("/favicon.ico")
+    def favicon():
+        """At the root, where browsers look for any page that names no icon."""
+        return Response((HERE / "static" / "brand" / "favicon.ico").read_bytes(),
+                        media_type="image/x-icon",
+                        headers={"Cache-Control": "public, max-age=604800"})
 
     @app.api_route("/healthz", methods=["GET", "HEAD"])
     def healthz():

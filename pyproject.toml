@@ -51,6 +51,10 @@ include = ["go2*"]
 go2 = [
     "assets/*.xml",
     "assets/*.css",
+    # CompassPoint Mentorship's icon, for the lab's own pages (split view,
+    # dog panel), which have no website behind them on a laptop.
+    "assets/favicon.ico",
+    "assets/icon.png",
     "assets/assets/*",
     "assets/LICENSE",
     "assets/UPSTREAM_README.md",

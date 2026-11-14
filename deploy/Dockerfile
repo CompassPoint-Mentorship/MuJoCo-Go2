@@ -76,5 +76,8 @@ ENV GO2_SIM_PORT=8399 \
     GO2_SIM_URL=http://127.0.0.1:8399
 
 COPY --chown=student:student deploy/entrypoint.sh /usr/local/bin/entrypoint.sh
+# System-wide, so it applies however the lab is started: let the split page
+# frame JupyterLab (see the file for why JupyterHub's default breaks that).
+COPY deploy/jupyter_server_config.py /etc/jupyter/jupyter_server_config.py
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

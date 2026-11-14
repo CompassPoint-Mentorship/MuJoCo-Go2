@@ -1504,3 +1504,115 @@ def test_a_refused_pass_stops_instead_of_looping(client):
     sign_in_as(c, kind="student", name="Ada", slug="ada")
     r = c.get("/student/lab?failed=1", follow_redirects=False)
     assert r.status_code == 200 and "GO2_HUB_SECRET" in r.text
+
+
+# ------------------------------------------- the lab's own pages
+
+def test_the_online_lab_may_be_framed_by_its_own_split_page():
+    """JupyterHub's singleuser server sends frame-ancestors 'none' by default,
+    which left the split view's JupyterLab half empty. The lab image sets it
+    back to 'self' -- and the hub only uses setdefault, so ours wins."""
+    cfg = (pathlib.Path(__file__).resolve().parents[1] / "deploy" / "jupyter_server_config.py").read_text()
+    assert "frame-ancestors 'self'" in cfg
+    dockerfile = (pathlib.Path(__file__).resolve().parents[1] / "deploy" / "Dockerfile").read_text()
+    assert "/etc/jupyter/jupyter_server_config.py" in dockerfile, "the image must carry it"
+
+
+def test_the_site_root_answers_favicon_with_compasspoints(client):
+    r = client.get("/favicon.ico")
+    brand = pathlib.Path(__file__).resolve().parents[1] / "classroom" / "static" / "brand" / "favicon.ico"
+    assert r.status_code == 200 and r.content == brand.read_bytes()
+
+
+def test_the_lab_pages_carry_compasspoints_icon(tmp_path):
+    """The split page and the dog panel come from the simulator, not the site --
+    on a laptop there is no site -- so the simulator serves the icon itself."""
+    import socket
+    import urllib.request
+
+    from go2 import Go2
+    from go2.web import serve_background
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    dog = Go2(sim=True, viewer=False, realtime=False)
+    server, frames = serve_background(dog, port=port, fps=2)
+    try:
+        base = f"http://127.0.0.1:{port}"
+        for page in ("/", "/split"):
+            html = urllib.request.urlopen(base + page).read().decode()
+            assert 'rel="icon" href="favicon.ico"' in html, page
+        icon = urllib.request.urlopen(base + "/favicon.ico")
+        assert icon.headers["Content-Type"] == "image/x-icon"
+        brand = pathlib.Path(__file__).resolve().parents[1] / "classroom" / "static" / "brand" / "favicon.ico"
+        assert icon.read() == brand.read_bytes(), "the same icon as cpmentorship.org"
+    finally:
+        frames.stop()
+        server.shutdown()
+        server.server_close()
+        dog.close()
+
+
+# ------------------------------------------- the console, with the hub live
+
+@pytest.fixture
+def hub_console(settings, monkeypatch):
+    import dataclasses
+
+    from classroom import hub as hub_module
+
+    monkeypatch.setenv("GO2_HUB_API_TOKEN", "test-hub-token")
+    stopped = []
+    monkeypatch.setattr(hub_module.Hub, "labs", lambda self: {
+        "ada": {"state": "running", "active": "3 min ago"}})
+    monkeypatch.setattr(hub_module.Hub, "stop", lambda self, slug: stopped.append(slug))
+    calls = []
+    monkeypatch.setattr(labs.Labs, "_run",
+                        lambda self, cmd, slug, *a, **k: calls.append((cmd, slug)) or "")
+    live = dataclasses.replace(settings, hub_public=True, hub_secret="s3cret")
+    c = TestClient(app_module.create_app(live), base_url=live.base_url)
+    c.settings, c.stopped, c.calls = live, stopped, calls
+    return c
+
+
+def test_with_the_hub_live_the_console_shows_online_labs_not_local_links(hub_console):
+    db.add(hub_console.settings.db_path, slug="ada", display="Ada", email=None, created_by="t")
+    db.add(hub_console.settings.db_path, slug="bob", display="Bob", email=None, created_by="t")
+    sign_in_as(hub_console, kind="teacher", email=TEACHER)
+    page = hub_console.get("/console").text
+
+    assert "Online lab" in page and "active 3 min ago" in page
+    assert "never opened" in page, "Bob has not opened his yet"
+    assert "192.168." not in page and ">lan<" not in page, "no local-network links"
+    assert "start a lab for them" not in page
+
+
+def test_with_the_hub_live_adding_a_student_starts_nothing(hub_console):
+    sign_in_as(hub_console, kind="teacher", email=TEACHER)
+    hub_console.post("/console/add", data={"name": "Cy", "lab": "1", "csrf": SESSION_CSRF})
+    assert db.get(hub_console.settings.db_path, "cy") is not None
+    assert hub_console.calls == [], "the hub starts labs on demand"
+
+
+def test_a_mentor_can_stop_an_online_lab_and_a_student_cannot(hub_console):
+    db.add(hub_console.settings.db_path, slug="ada", display="Ada", email=None, created_by="t")
+    sign_in_as(hub_console, kind="student", name="Ada", slug="ada")
+    hub_console.post("/console/hub/ada/stop", data={"csrf": SESSION_CSRF})
+    assert hub_console.stopped == []
+
+    sign_in_as(hub_console, kind="teacher", email=TEACHER)
+    r = hub_console.post("/console/hub/ada/stop", data={"csrf": SESSION_CSRF},
+                         follow_redirects=True)
+    assert hub_console.stopped == ["ada"] and "Their files stay" in r.text
+
+
+def test_an_old_per_port_lab_can_be_retired_from_the_console(hub_console, monkeypatch):
+    db.add(hub_console.settings.db_path, slug="ada", display="Ada", email=None, created_by="t")
+    monkeypatch.setattr(labs.Labs, "info", lambda self, slug: labs.Lab(
+        slug=slug, port=8401, token="t", work_dir="/tmp", status="Up 2 hours"))
+    sign_in_as(hub_console, kind="teacher", email=TEACHER)
+    assert "old lab still running on port 8401" in hub_console.get("/console").text
+
+    hub_console.post("/console/oldlab/ada/retire", data={"csrf": SESSION_CSRF})
+    assert ("down", "ada") in hub_console.calls

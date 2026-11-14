@@ -118,3 +118,18 @@ c.JupyterHub.load_roles = [{
     "scopes": ["list:users", "read:users:activity", "read:servers", "delete:servers"],
     "services": ["idle-culler"],
 }]
+
+# ------------------------------------------------------------ the console
+# The classroom console shows each student's online lab and can stop one.
+# Its key can do exactly that: list users, read their labs' state and last
+# activity, and stop a lab. It cannot start one, open one, or act as anyone.
+if os.environ.get("GO2_HUB_API_TOKEN"):
+    c.JupyterHub.services.append({
+        "name": "classroom",
+        "api_token": os.environ["GO2_HUB_API_TOKEN"],
+    })
+    c.JupyterHub.load_roles.append({
+        "name": "classroom",
+        "scopes": ["list:users", "read:users:activity", "read:servers", "delete:servers"],
+        "services": ["classroom"],
+    })

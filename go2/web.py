@@ -21,8 +21,8 @@ from __future__ import annotations
 import argparse
 import io
 import json
-import pathlib
 import os
+import pathlib
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -32,6 +32,9 @@ from .api import Go2
 from .build import build_id
 from .audio import MAX_CLIP_BYTES
 
+# CompassPoint's icon for the lab's own pages; shipped in the package.
+PKG_ASSETS = pathlib.Path(__file__).resolve().parent / "assets"
+
 _BOUNDARY = "go2frame"
 
 _PAGE = """<!doctype html>
@@ -39,6 +42,8 @@ _PAGE = """<!doctype html>
 <head>
 <meta charset="utf-8"/>
 <title>Go2 simulator</title>
+<link rel="icon" href="favicon.ico" sizes="any"/>
+<link rel="icon" href="icon.png" type="image/png"/>
 <!-- URLs below are RELATIVE on purpose. This page is served both at / and
      under a prefix (jupyter-server-proxy mounts it at /proxy/<port>/).
      An absolute "/stream" would resolve against the Jupyter root there and
@@ -376,6 +381,8 @@ _SPLIT = r"""<!doctype html>
 <head>
 <meta charset="utf-8"/>
 <title>Go2 lab</title>
+<link rel="icon" href="favicon.ico" sizes="any"/>
+<link rel="icon" href="icon.png" type="image/png"/>
 <style>
   html,body { margin:0; height:100%; background:#111; }
   #split { display:flex; height:100%; }
@@ -596,6 +603,22 @@ def _handler(dog: Go2, frames: _Frames, watcher=None):
             url = urlparse(self.path)
             if url.path in ("", "/"):
                 self._send(_panel_page().encode(), "text/html; charset=utf-8")
+            elif url.path in ("/favicon.ico", "/icon.png"):
+                # CompassPoint's icon, so a lab tab looks like the rest of the
+                # class's pages -- relative links in both pages find it here
+                # whether served at /, /proxy/<port>/ or under a hub prefix.
+                icon = PKG_ASSETS / url.path.lstrip("/")
+                if icon.is_file():
+                    self.send_response(200)
+                    self.send_header("Content-Type", "image/x-icon" if icon.suffix == ".ico"
+                                     else "image/png")
+                    self.send_header("Cache-Control", "public, max-age=604800")
+                    data = icon.read_bytes()
+                    self.send_header("Content-Length", str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data)
+                else:
+                    self._send(b"no icon", "text/plain", 404)
             elif url.path == "/classroom/status":
                 self._send(json.dumps(classroom.status()).encode(), "application/json")
             elif url.path == "/pose":

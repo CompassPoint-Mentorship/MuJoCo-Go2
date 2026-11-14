@@ -28,17 +28,29 @@
       <label for="email">Google address (optional)</label>
       <input id="email" name="email" type="email" placeholder="ada@example.org">
     </div>
+    {% if not (rows and rows[0].hub is not none) %}
     <div>
       <label><input type="checkbox" name="lab" value="1" checked> start a lab for them</label>
     </div>
+    {% endif %}
     <button class="btn" type="submit">Add</button>
   </form>
+  {% if rows and rows[0].hub is not none %}
+  <p class="note">
+    The name becomes their work folder (<code>Ada Lovelace</code> →
+    <code>ada-lovelace</code>). Nothing starts now: their online lab starts the
+    first time they press <strong>Open my online lab</strong>, and stops by
+    itself after an hour unused. Leave the address blank and they sign in with
+    the join code instead.
+  </p>
+  {% else %}
   <p class="note">
     The name becomes their container and work folder (<code>Ada Lovelace</code>
     → <code>ada-lovelace</code>). Starting a lab takes a few minutes the first
     time — this page updates itself while it builds. Leave the address blank
     and they sign in with the join code instead.
   </p>
+  {% endif %}
 </div>
 
 <table>
@@ -46,8 +58,8 @@
     <th>Student</th>
     <th>Email</th>
     <th>Join code</th>
-    <th>Lab</th>
-    <th>Link</th>
+    <th>{{ 'Online lab' if rows and rows[0].hub is not none else 'Lab' }}</th>
+    {% if not (rows and rows[0].hub is not none) %}<th>Link</th>{% endif %}
     <th></th>
   </tr>
   {% for row in rows %}
@@ -81,6 +93,40 @@
       {% endif %}
     </td>
     <td><span class="code-chip">{{ s.join_code }}</span></td>
+    {% if row.hub is not none %}
+    <td>
+      {% if row.hub_unreachable %}
+        <span class="pill failed">hub unreachable</span>
+      {% else %}
+        <span class="pill {{ 'running' if row.hub.state == 'running' else ('provisioning' if row.hub.state in ('starting', 'stopping') else 'stopped') }}">{{ row.hub.state }}</span>
+        {% if row.hub.active %}<br><span class="note">active {{ row.hub.active }}</span>{% endif %}
+      {% endif %}
+      {% if row.lab and row.lab.running %}
+        <br><span class="note" style="color:var(--bad)">old lab still running on port {{ row.lab.port }}</span>
+      {% endif %}
+    </td>
+    <td>
+      {% if row.hub.state in ('running', 'starting') %}
+      <form method="post" action="/console/hub/{{ s.slug }}/stop" style="display:inline"
+            onsubmit="return confirm('Stop {{ s.display }}\'s online lab? Their files stay.')">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="btn small ghost" type="submit">Stop</button>
+      </form>
+      {% endif %}
+      {% if row.lab and row.lab.running %}
+      <form method="post" action="/console/oldlab/{{ s.slug }}/retire" style="display:inline"
+            onsubmit="return confirm('Stop {{ s.display }}\'s old per-port lab? The online lab uses the same files.')">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="btn small ghost" type="submit">Retire old lab</button>
+      </form>
+      {% endif %}
+      <form method="post" action="/console/lab/{{ s.slug }}/forget" style="display:inline"
+            onsubmit="return confirm('Take {{ s.display }} off the list? Their work stays on the server.')">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button class="btn small ghost" type="submit">Forget</button>
+      </form>
+    </td>
+    {% else %}
     <td>
       <span class="pill {{ row.state }}">{{ row.state }}</span>
       {% if row.lab and row.lab.port %}<br><span class="note">port {{ row.lab.port }}</span>{% endif %}
@@ -112,6 +158,7 @@
         <button class="btn small ghost" type="submit">Forget</button>
       </form>
     </td>
+    {% endif %}
   </tr>
   {% endfor %}
 </table>
@@ -215,6 +262,15 @@
   locking out its own owners.
 </p>
 
+{% if rows and rows[0].hub is not none %}
+<h2>What the buttons do</h2>
+<ul class="note">
+  <li><strong>Online lab</strong> — what JupyterHub says: running, starting, stopped, or never opened, and when it was last used.</li>
+  <li><strong>Stop</strong> — stops that student's online lab (a stuck one, or to free the GPU). Their files stay; it starts again when they next open it.</li>
+  <li><strong>Retire old lab</strong> — appears only while a student's old per-port lab is still running. Stops it; the online lab uses the same folder, so nothing is lost.</li>
+  <li><strong>Forget</strong> — removes them from this list only. Their work folder stays where it is.</li>
+</ul>
+{% else %}
 <h2>What the buttons do</h2>
 <ul class="note">
   <li><strong>Start</strong> — <code>go2-student.sh create</code> (first time) then <code>up</code>: builds the image if needed and starts their container.</li>
@@ -222,6 +278,7 @@
   <li><strong>Sync</strong> — hands out updated coursework. The example notebook is read-only, so this replaces it in place.</li>
   <li><strong>Forget</strong> — removes them from this list only. Their container, their work folder and their port stay exactly where they are; cleaning those up is a decision for someone at a terminal.</li>
 </ul>
+{% endif %}
 
 <script>
 // While a lab is building, this page is a progress bar. Poll rather than
