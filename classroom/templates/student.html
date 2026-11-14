@@ -21,7 +21,18 @@
   </p>
 </div>
 
-{% if lab and lab.running and links %}
+{% if online_lab %}
+<div class="card">
+  <h3>2. Or use your lab in the browser</h3>
+  <p>Nothing to install, and nothing to remember: you are already signed in.</p>
+  <p><a class="btn" href="/student/lab">Open my online lab</a></p>
+  <p class="note">
+    It starts the first time you open it each day — give it a minute — and
+    stops by itself when you have not used it for an hour. Your files stay
+    either way.
+  </p>
+</div>
+{% elif lab and lab.running and links %}
 <div class="card">
   <h3>2. Or use your lab in the browser</h3>
   <p>

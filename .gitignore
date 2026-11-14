@@ -60,3 +60,6 @@ courses/
 
 # Homework handed in from laptops: student data, not source.
 handins/
+
+# JupyterHub state: its database and cookie secret.
+deploy/hub/data/

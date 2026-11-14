@@ -1423,3 +1423,84 @@ def test_quoted_originals_are_cut_in_the_common_shapes():
     assert strip_quoted(gmail) == "Sounds good!"
     assert strip_quoted(outlook) == "Will do."
     assert strip_quoted(plain) == "Got it"
+
+
+# ------------------------------------------- the pass into JupyterHub
+
+def _hub_token_module():
+    import importlib.util
+    path = pathlib.Path(__file__).resolve().parents[1] / "deploy" / "hub" / "handoff_token.py"
+    spec = importlib.util.spec_from_file_location("handoff_token", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_the_site_and_the_hub_agree_on_the_pass():
+    """Two copies of one format: signed here, read there."""
+    from classroom import handoff
+
+    hub = _hub_token_module()
+    token = handoff.make_pass("s3cret", "ada")
+    body = hub.read_pass("s3cret", token)
+    assert body and body["u"] == "ada" and body["n"]
+
+
+def test_a_pass_fails_every_way_it_should():
+    import time
+
+    from classroom import handoff
+
+    hub = _hub_token_module()
+    good = handoff.make_pass("s3cret", "ada")
+    payload, sig = good.split(".")
+
+    assert hub.read_pass("other-secret", good) is None, "wrong secret"
+    assert hub.read_pass("s3cret", payload + "." + sig[:-2] + "AA") is None, "tampered signature"
+    forged = hub._b64(b'{"u":"admin","exp":9999999999,"n":"x"}')
+    assert hub.read_pass("s3cret", forged + "." + sig) is None, "someone else's payload"
+    assert hub.read_pass("s3cret", good, now=time.time() + 61) is None, "expired"
+    assert hub.read_pass("s3cret", "") is None and hub.read_pass("", good) is None
+    with pytest.raises(ValueError):
+        hub.make_pass("s3cret", "../etc")
+
+
+def test_open_my_online_lab_sends_a_fresh_pass_to_the_hub(client, monkeypatch):
+    import dataclasses
+    from urllib.parse import parse_qs, urlparse
+
+    hub = _hub_token_module()
+    settings = dataclasses.replace(client.settings, hub_secret="s3cret", hub_public=True)
+    c = TestClient(app_module.create_app(settings), base_url=settings.base_url)
+    c.settings = settings
+    db.add(settings.db_path, slug="ada", display="Ada", email=None, created_by="t")
+
+    assert "Sign in" in c.get("/student/lab").text, "signed out: sign in first"
+
+    sign_in_as(c, kind="student", name="Ada", slug="ada")
+    assert "Open my online lab" in c.get("/student").text
+    r = c.get("/student/lab", follow_redirects=False)
+    target = urlparse(r.headers["location"])
+    q = {k: v[0] for k, v in parse_qs(target.query).items()}
+
+    assert target.path == "/labs/hub/login"
+    assert q["next"] == "/labs/hub/spawn/ada?next=%2Flabs%2Fuser%2Fada%2Fproxy%2F8399%2Fsplit", \
+        "through /hub/spawn, so a stopped lab is started rather than shown a Launch button"
+    assert hub.read_pass("s3cret", q["pass"])["u"] == "ada"
+    assert "token=" not in r.headers["location"], "no lab token in any URL"
+
+    sign_in_as(c, kind="teacher", email=TEACHER)
+    assert c.get("/student/lab", follow_redirects=False).headers["location"] == "/student", \
+        "a mentor is not a student and gets no lab pass"
+
+
+def test_a_refused_pass_stops_instead_of_looping(client):
+    import dataclasses
+
+    settings = dataclasses.replace(client.settings, hub_secret="s3cret")
+    c = TestClient(app_module.create_app(settings), base_url=settings.base_url)
+    c.settings = settings
+    db.add(settings.db_path, slug="ada", display="Ada", email=None, created_by="t")
+    sign_in_as(c, kind="student", name="Ada", slug="ada")
+    r = c.get("/student/lab?failed=1", follow_redirects=False)
+    assert r.status_code == 200 and "GO2_HUB_SECRET" in r.text

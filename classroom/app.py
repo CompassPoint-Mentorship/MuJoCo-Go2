@@ -34,7 +34,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from fastapi import File, UploadFile
 
 from . import auth, db
-from . import inbox, mail
+from . import handoff, inbox, mail
 from .course import CourseError, Pack, inside, safe_name
 from .labs import LabError, Labs
 from .settings import Settings
@@ -329,6 +329,39 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         result = db.poll_connect(settings.db_path, str(body.get("device_code", "")))
         return JSONResponse(result, headers={"Cache-Control": "no-store"})
 
+    @app.get("/student/lab")
+    def student_lab(request: Request, failed: str = ""):
+        """Into the student's online lab, signed in, without a token anywhere.
+
+        The hub has no login page: it sends anyone without a pass here, and
+        this writes one -- signed, sixty seconds, single use -- for whoever is
+        signed in on this site. Not signed in? Sign in first, then come back.
+        """
+        who = auth.current(request)
+        if not who:
+            return page(request, "student_login.html", error=None, next="/student/lab")
+        if failed:
+            # The hub refused a pass this site wrote: the two disagree about
+            # the secret. Say so, rather than bouncing between them forever.
+            return page(request, "student_login.html",
+                        error="The online lab did not accept the sign-in. Tell your "
+                              "mentor: the lab and the site need the same GO2_HUB_SECRET.")
+        if who.is_teacher or not who.slug or not settings.hub_secret:
+            return RedirectResponse("/student", status_code=303)
+        student = db.get(settings.db_path, who.slug)
+        if not student:
+            return RedirectResponse("/student", status_code=303)
+        token = handoff.make_pass(settings.hub_secret, student.slug)
+        # Through the hub's spawn address, not the lab's own: since
+        # JupyterHub 4 a stopped lab's URL shows a Launch button rather than
+        # starting it. /hub/spawn starts it if needed, then carries on to the
+        # split view -- and goes straight there if it is already running.
+        from urllib.parse import quote, urlencode
+        split = f"/labs/user/{student.slug}/proxy/8399/split"
+        target = f"/labs/hub/spawn/{student.slug}?next={quote(split, safe='')}"
+        return RedirectResponse("/labs/hub/login?" + urlencode({"pass": token, "next": target}),
+                                status_code=303)
+
     @app.get("/connect", response_class=HTMLResponse)
     def connect_page(request: Request, code: str = ""):
         """Where the laptop's "sign in" button lands, in the student's browser.
@@ -492,6 +525,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lab = labs.info(student.slug)
         feedback = db.comments_for_student(settings.db_path, student.slug)
         response = page(request, "student.html", student=student, lab=lab,
+                        online_lab=bool(settings.hub_public and settings.hub_secret),
                         links=labs.links(student.slug) if lab and lab.running else [],
                         feedback=feedback,
                         handins=db.handins_for(settings.db_path, student.slug))

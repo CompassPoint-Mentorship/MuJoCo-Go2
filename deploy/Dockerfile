@@ -35,10 +35,13 @@ WORKDIR /opt/go2
 
 # Dependencies first so edits to our code do not re-resolve the world.
 COPY pyproject.toml README.md ./
+# jupyterhub provides jupyterhub-singleuser, which is how a lab runs when the
+# hub starts it. Pinned to the hub's own version (deploy/hub/Dockerfile): the
+# two talk over an internal API, and a mismatch fails at sign-in.
 RUN pip install --no-cache-dir \
         "mujoco>=3.2,<5" "numpy>=1.24" "pillow>=10" \
         jupyterlab notebook ipywidgets \
-        jupyter-server-proxy
+        jupyter-server-proxy "jupyterhub==6.2.0"
 
 COPY go2 ./go2
 RUN pip install --no-cache-dir -e . \
@@ -57,9 +60,13 @@ EXPOSE 8888
 # Both halves must answer. Probing only Lab once let a container sit "healthy"
 # for 13 hours with a dead simulator: students saw a 500 on the split page
 # while docker insisted all was well.
+# Under the hub, Jupyter lives at /labs/user/<name>/ rather than / -- the
+# prefix arrives as JUPYTERHUB_SERVICE_PREFIX -- and its /api answers without
+# a login, which is all a liveness probe needs.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=3 \
     CMD { curl -fsSk "https://localhost:8888/lab" >/dev/null \
-       || curl -fsS "http://localhost:8888/lab" >/dev/null; } \
+       || curl -fsS "http://localhost:8888/lab" >/dev/null \
+       || curl -fsS "http://localhost:8888${JUPYTERHUB_SERVICE_PREFIX:-/}api" >/dev/null; } \
      && curl -fsS "http://127.0.0.1:${GO2_SIM_PORT:-8399}/state" >/dev/null || exit 1
 
 # The simulator runs as its own service; notebooks are clients of it.

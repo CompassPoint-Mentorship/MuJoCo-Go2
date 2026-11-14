@@ -83,6 +83,11 @@ class Settings:
     # How often to look in the mailbox for replies to the site's email.
     # 0 turns the background look off; "check now" in the console still works.
     inbox_every: int = 180
+    # Online labs, through JupyterHub. The secret signs the pass that carries
+    # a signed-in student into the hub; hub_public says the gateway already
+    # routes /labs/ there, so the student page may offer the button.
+    hub_secret: str = ""
+    hub_public: bool = False
 
 
     @property
@@ -134,4 +139,6 @@ class Settings:
             mail_from=os.environ.get("MAIL_FROM", ""),
             mail_daily_limit=int(os.environ.get("MAIL_DAILY_LIMIT", "300") or 300),
             inbox_every=int(os.environ.get("INBOX_EVERY", "180") or 180),
+            hub_secret=os.environ.get("GO2_HUB_SECRET", ""),
+            hub_public=os.environ.get("GO2_HUB_PUBLIC", "0") == "1",
         )

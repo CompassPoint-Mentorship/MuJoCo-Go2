@@ -19,6 +19,7 @@ landing page, a student page, a mentor console and a copy of a shell script.
 | Upstream port | `8500`, plain HTTP |
 | What it is | a container (`go2-classroom`) on host networking, `restart: unless-stopped` |
 | Health check | `GET /healthz` → `200`, body `ok` |
+| Online labs | a second upstream for `/labs/` only — section 5 |
 | Expected traffic | tens of requests per class session; one mentor, up to ~30 students |
 
 The upstream box will be firewalled to accept `8500` only from the gateway.
@@ -210,15 +211,94 @@ real_ip_header CF-Connecting-IP;
 
 ---
 
-## 5. Out of scope, and please do not improvise it
+## 5. Online labs: add `/labs/`
 
-**Student lab containers (ports 8400–8460 on the upstream box) must not be
-exposed through this gateway yet.** They are JupyterLab instances whose URL
-*token is the login*; publishing them needs a path prefix configured inside
-each container (`--ServerApp.base_url`), WebSocket upgrade handling, and a
-decision about how the token travels. That work is planned on the app side.
-Proxying them now, without the base-path change, produces a lab that loads a
-blank page and a mentor who cannot tell why.
+The online labs run in JupyterHub on the same machine, on a **different port**.
+Send `/labs/` there; leave everything else exactly as it is.
+
+| | |
+|---|---|
+| Path | `/labs/` and everything under it |
+| Upstream | `192.168.1.215:8600`, plain HTTP |
+| Health check | `GET /labs/hub/api` → `{"version": "6.2.0"}` |
+
+**Why a separate route rather than one upstream:** the website must not depend
+on the labs. If JupyterHub is down, `/`, `/student`, `/console`, the installer
+and the course material every laptop pulls at launch all keep working. The
+labs are the backup; the backup must not be able to take down the main thing.
+
+```nginx
+# once, at http{} level
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      '';
+}
+
+server {
+    # ... the existing server block for robo-dog.cpmentorship.org ...
+
+    # Saving a notebook with plots in it is several MB.
+    client_max_body_size 50m;
+
+    location /labs/ {
+        proxy_pass http://192.168.1.215:8600;   # no trailing slash: path passes through
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade            $http_upgrade;
+        proxy_set_header Connection         $connection_upgrade;
+        proxy_set_header Host               $host;
+        proxy_set_header X-Real-IP          $remote_addr;
+        proxy_set_header X-Forwarded-For    $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto  $scheme;
+
+        # A notebook keeps its WebSocket open for hours while a student thinks.
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        # The "starting your lab" page streams progress; buffering it shows
+        # nothing until the lab is up.
+        proxy_buffering off;
+    }
+
+    # location / { ... }   -- unchanged
+}
+```
+
+Hard requirements, each with its failure:
+
+- **WebSockets** (`Upgrade` / `Connection` via the `map`). A notebook runs code
+  over a WebSocket and has no fallback: without this, notebooks open and no
+  cell ever runs. The `map` keeps ordinary requests on keep-alive.
+- **Long timeouts.** nginx's default 60 s cuts an idle notebook's socket and
+  the student sees "kernel disconnected".
+- **`proxy_buffering off`** on `/labs/`, or the start-up page sits blank.
+- **Path passes through** (no trailing slash on `proxy_pass`): JupyterHub serves
+  itself *under* `/labs/`.
+
+Port 8600 must be reachable from the gateway, like 8500.
+
+### Checks
+
+```bash
+curl -fsS https://robo-dog.cpmentorship.org/labs/hub/api
+#    -> {"version": "6.2.0"}
+
+curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' https://robo-dog.cpmentorship.org/labs/hub/login
+#    -> 302 https://robo-dog.cpmentorship.org/student/lab
+#       (the hub has no login page: it sends people to sign in on the site)
+
+curl -fsS https://robo-dog.cpmentorship.org/healthz
+#    -> ok   (the site, untouched)
+```
+
+The WebSocket itself can only be proved by running code in a lab, which needs
+a signed-in student. That check is run from the class server, and it is
+the last step before students get the button.
+
+## 6. Out of scope, and please do not improvise it
+
+**The old per-student lab ports (8400–8460 on the upstream box) must never be
+exposed through this gateway.** Their URL token *is* the login, so publishing
+one publishes a password. Online labs are reached through `/labs/` only, where
+signing in happens on the website and no link carries a token.
 
 Also out of scope: basic-auth or IP allowlists in front of anything. The app
 does its own authentication — Google for mentors (an allowlist on the server),
@@ -227,7 +307,7 @@ defeat the point of a link a student can open on a school laptop.
 
 ---
 
-## 6. Contact points
+## 7. Contact points
 
 - Upstream service: `systemctl status classroom` on `bumblebee`,
   logs in `journalctl -u classroom`.

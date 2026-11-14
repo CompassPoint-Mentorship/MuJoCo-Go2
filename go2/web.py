@@ -807,12 +807,16 @@ class Classroom:
         self.watcher = watcher
         self.link = None
         self.actions: dict = {}
-        if watcher is not None:
+        if watcher is not None and os.environ.get("GO2_CLASS_IDENTITY", "on") != "off":
+            # A laptop has to sign in to be anyone. An online lab is already
+            # signed in -- the hub knows the student -- so it skips this.
             from .classlink import Link
 
             self.link = Link(watcher.work)
+        if watcher is not None:
             self.actions["course-check"] = self._course_check
             self.actions["course-get"] = self._course_get
+        if self.link is not None:
             self.actions["class-connect"] = self._connect
             self.actions["class-signout"] = self._sign_out
             self.actions["class-handin"] = self._hand_in

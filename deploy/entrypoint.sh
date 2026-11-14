@@ -8,6 +8,20 @@ set -euo pipefail
 
 SIM_PORT="${GO2_SIM_PORT:-8399}"
 
+# Started by JupyterHub: fetch the class's course material first, exactly as
+# a laptop does at launch. FIRST, because the simulator service's classroom
+# strip checks the class site the moment it starts -- pull afterwards and the
+# strip announces "5 new files" for material that is already in the folder.
+if [ -n "${JUPYTERHUB_API_TOKEN:-}" ] && [ -n "${GO2_COURSE_WORK:-}" ]; then
+  python -c "
+import pathlib
+from go2 import course
+pulled = course.pull()
+for note in pulled.notes: print('[course]', note)
+for note in course.sync(pathlib.Path('${GO2_COURSE_WORK}'), course.resolve()): print('[course]', note)
+" || echo "[course] could not fetch course material; starting with what is there" >&2
+fi
+
 # Keep the simulator running. If it ever dies, a dead panel and a notebook
 # full of ConnectionRefusedError is a terrible experience for a student who
 # did nothing wrong -- so supervise it and bring it straight back. The dog
@@ -79,6 +93,17 @@ fi
 # directory, so it is copied there on every start rather than baked into the
 # image: the package is what ships it.
 python -m go2.labcss >/dev/null 2>&1 || true
+
+# Started by JupyterHub: the hub passes its own command and settings
+# (jupyterhub-singleuser with the student's URL prefix), and signs people in
+# itself -- so no token and no certificate here. Course material was fetched
+# at the top; the classroom strip offers anything that arrives later.
+if [ -n "${JUPYTERHUB_API_TOKEN:-}" ]; then
+  if [ $# -eq 0 ]; then
+    set -- jupyterhub-singleuser
+  fi
+  exec "$@" --LabApp.custom_css=True
+fi
 
 exec jupyter lab \
   --ip=0.0.0.0 --port=8888 --no-browser \
